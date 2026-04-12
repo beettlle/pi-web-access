@@ -1167,7 +1167,7 @@ export default function (pi: ExtensionAPI) {
 				const availableProviders = bootstrap.availableProviders;
 				const defaultProvider = bootstrap.defaultProvider;
 				const curatorTimeoutSeconds = bootstrap.timeoutSeconds;
-				const curatorWorkflow: CuratorWorkflow = "summary-review";
+				const curatorWorkflow: CuratorWorkflow = workflow;
 
 				const summaryContext: SummaryGenerationContext = {
 					model: ctx.model,
