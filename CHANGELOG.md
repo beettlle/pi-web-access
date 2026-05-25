@@ -7,9 +7,16 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Parallel search provider via REST API (`provider: "parallel"` or auto-chain after Exa when `parallelApiKey` is configured).
 - Parallel Extract fallback in `fetch_content` when HTTP/Readability and Jina fail and `parallelApiKey` (or `PARALLEL_API_KEY`) is configured.
+- Added `GOOGLE_GEMINI_BASE_URL` env var and `geminiBaseUrl` config key to route Gemini API requests through a compatible gateway (e.g. Cloudflare AI Gateway, LiteLLM, Helicone). Matches the env var name used by the official Gemini CLI. Takes precedence: env var > config > Google default endpoint.
+- Added `CLOUDFLARE_API_KEY` env var and `cloudflareApiKey` config key for Cloudflare AI Gateway authentication (`cf-aig-authorization` header), matching how pi core handles the same gateway. Automatically activated when the configured host contains `gateway.ai.cloudflare.com`.
 
 ### Changed
 - Documented provider selection semantics: `provider: "auto"` (default) walks **Exa → Parallel → Perplexity → Gemini** on failure; explicit `provider: "parallel"` is strict (missing key or API error fails immediately, no silent fallback to other providers).
+
+### Fixed
+- Split `API_BASE` into `DEFAULT_API_HOST` + `API_VERSION` constants so gateway base URL overrides do not require users to include the version segment (`/v1beta`). `API_BASE` is kept as a deprecated export for backward compatibility.
+- Added `role: "user"` to all `contents[]` entries in `:generateContent` request bodies. Google's public endpoint defaults the role server-side, but Vertex AI-backed proxies reject requests without an explicit role.
+- Updated all four Gemini API call sites (`gemini-search.ts`, `gemini-url-context.ts`, `gemini-api.ts`, `video-extract.ts`) to use `getVersionedApiBase()` so gateway URL overrides take effect consistently.
 
 ## [0.10.7] - 2026-05-02
 
