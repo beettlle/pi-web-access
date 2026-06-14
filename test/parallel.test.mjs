@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 const parallelModuleUrl = new URL("../parallel.ts", import.meta.url).href;
+const geminiSearchModuleUrl = new URL("../gemini-search.ts", import.meta.url).href;
 
 async function createTempHome(prefix = "pi-web-access-parallel-") {
 	return mkdtemp(join(tmpdir(), prefix));
@@ -105,6 +106,10 @@ function buildActivityMockRegisterScript() {
 		"      shortCircuit: true,",
 		"    };",
 		"  }",
+		'  if (specifier.endsWith(".js") && !specifier.startsWith("node:")) {',
+		"    const tsSpecifier = specifier.replace(/\\.js$/, \".ts\");",
+		"    return nextResolve(tsSpecifier, context);",
+		"  }",
 		"  return nextResolve(specifier, context);",
 		"}",
 	].join("\n");
@@ -151,6 +156,61 @@ const { extractWithParallel } = await import(${JSON.stringify(parallelModuleUrl)
 ${scriptBody}`,
 		extraEnv,
 	);
+}
+
+function runGeminiSearch(home, scriptBody, extraEnv = {}) {
+	return runWithHome(
+		home,
+		`${buildParallelImportPreamble()}
+const { search } = await import(${JSON.stringify(geminiSearchModuleUrl)});
+${scriptBody}`,
+		extraEnv,
+	);
+}
+
+function buildRoutingFetchMockScript(handlers) {
+	return `
+const __routingFetchHandlers = ${JSON.stringify(handlers)};
+const __routingFetchCalls = [];
+
+globalThis.fetch = async (url, init = {}) => {
+	const urlStr = String(url);
+	const method = init.method ?? "GET";
+	const bodyText = init.body == null ? null : String(init.body);
+	const body = bodyText ? JSON.parse(bodyText) : null;
+	const call = { url: urlStr, method, headers: init.headers ?? {}, body };
+	__routingFetchCalls.push(call);
+
+	const handler = __routingFetchHandlers.find((entry) => {
+		if (entry.url && urlStr === entry.url) return true;
+		if (entry.urlMatch && urlStr.includes(entry.urlMatch)) return true;
+		return false;
+	});
+
+	if (!handler) {
+		throw new Error("Unexpected fetch to " + urlStr);
+	}
+
+	const responseBody = typeof handler.response === "function"
+		? handler.response(call)
+		: handler.response;
+
+	return {
+		ok: handler.ok ?? true,
+		status: handler.status ?? 200,
+		async text() {
+			if (responseBody == null) return "";
+			return typeof responseBody === "string" ? responseBody : JSON.stringify(responseBody);
+		},
+		async json() {
+			if (responseBody == null) return null;
+			return typeof responseBody === "string" ? JSON.parse(responseBody) : responseBody;
+		},
+	};
+};
+
+globalThis.__getRoutingFetchCalls = () => __routingFetchCalls;
+`;
 }
 
 const extractTargetUrl = "https://example.test/article";
@@ -514,4 +574,99 @@ console.log(JSON.stringify({ result }));
 	assertChildSuccess(child);
 	const parsed = JSON.parse(child.stdout.trim());
 	assert.equal(parsed.result, null);
+});
+
+test("normalizeSearchProvider accepts parallel from web-search.json config", async () => {
+	const home = await createTempHome();
+	await writeWebSearchConfig(home, {
+		searchProvider: "Parallel",
+		parallelApiKey: "test-key",
+	});
+
+	const child = runGeminiSearch(home, `
+${buildRoutingFetchMockScript([
+	{
+		urlMatch: "api.parallel.ai/v1/search",
+		response: sampleV1SearchResponse,
+	},
+])}
+const sampleV1SearchResponse = ${JSON.stringify(sampleV1SearchResponse)};
+const result = await search("normalize provider query");
+const calls = globalThis.__getRoutingFetchCalls();
+console.log(JSON.stringify({
+	provider: result.provider,
+	parallelCallCount: calls.filter((call) => call.url.includes("api.parallel.ai/v1/search")).length,
+}));
+	`);
+
+	assertChildSuccess(child);
+	const parsed = JSON.parse(child.stdout.trim());
+	assert.equal(parsed.provider, "parallel");
+	assert.equal(parsed.parallelCallCount, 1);
+});
+
+test("auto chain calls Parallel /v1/search when only parallelApiKey is configured", async () => {
+	const home = await createTempHome();
+	await writeWebSearchConfig(home, { parallelApiKey: "test-key" });
+
+	const child = runGeminiSearch(home, `
+${buildRoutingFetchMockScript([
+	{
+		urlMatch: "mcp.exa.ai/mcp",
+		ok: false,
+		status: 503,
+		response: "Exa MCP unavailable",
+	},
+	{
+		urlMatch: "api.parallel.ai/v1/search",
+		response: sampleV1SearchResponse,
+	},
+])}
+const sampleV1SearchResponse = ${JSON.stringify(sampleV1SearchResponse)};
+const result = await search("auto chain parallel query", { provider: "auto" });
+const calls = globalThis.__getRoutingFetchCalls();
+console.log(JSON.stringify({
+	provider: result.provider,
+	parallelCalls: calls.filter((call) => call.url.includes("api.parallel.ai/v1/search")).length,
+	perplexityCalls: calls.filter((call) => call.url.includes("api.perplexity.ai")).length,
+	geminiCalls: calls.filter((call) => call.url.includes("generativelanguage.googleapis.com")).length,
+}));
+	`);
+
+	assertChildSuccess(child);
+	const parsed = JSON.parse(child.stdout.trim());
+	assert.equal(parsed.provider, "parallel");
+	assert.equal(parsed.parallelCalls, 1);
+	assert.equal(parsed.perplexityCalls, 0);
+	assert.equal(parsed.geminiCalls, 0);
+});
+
+test("auto chain skips api.parallel.ai when Parallel key is not configured", async () => {
+	const home = await createTempHome();
+
+	const child = runGeminiSearch(home, `
+${buildRoutingFetchMockScript([
+	{
+		urlMatch: "mcp.exa.ai/mcp",
+		response: 'data: {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"No results found"}]}}\\n',
+	},
+])}
+let searchError = null;
+try {
+	await search("auto chain without parallel key", { provider: "auto" });
+} catch (err) {
+	searchError = err instanceof Error ? err.message : String(err);
+}
+const calls = globalThis.__getRoutingFetchCalls();
+console.log(JSON.stringify({
+	parallelCalls: calls.filter((call) => call.url.includes("api.parallel.ai")).length,
+	searchError,
+}));
+	`);
+
+	assertChildSuccess(child);
+	const parsed = JSON.parse(child.stdout.trim());
+	assert.equal(parsed.parallelCalls, 0);
+	assert.ok(parsed.searchError, "expected auto search to fail without any provider");
+	assert.doesNotMatch(parsed.searchError, /api\.parallel\.ai/);
 });
