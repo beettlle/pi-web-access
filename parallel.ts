@@ -8,6 +8,22 @@ import type { SearchOptions, SearchResponse } from "./perplexity.js";
 const PARALLEL_SEARCH_URL = "https://api.parallel.ai/v1/search";
 const PARALLEL_EXTRACT_URL = "https://api.parallel.ai/v1/extract";
 const CONFIG_PATH = join(homedir(), ".pi", "web-search.json");
+const MIN_PARALLEL_API_KEY_LENGTH = 8;
+
+const PLACEHOLDER_API_KEY_DENYLIST = new Set([
+	"replace_with_your_parallel_api_key",
+	"parallel_api_key",
+	"your-key",
+	"your-key-here",
+	"your-api-key-here",
+	"dummy",
+	"placeholder",
+	"changeme",
+	"insert-your-key",
+	"insert-your-key-here",
+	"api-key",
+	"xxx",
+]);
 
 interface WebSearchConfig {
 	parallelApiKey?: unknown;
@@ -38,9 +54,27 @@ function normalizeApiKey(value: unknown): string | null {
 	return normalized.length > 0 ? normalized : null;
 }
 
+function isPlaceholderApiKey(key: string): boolean {
+	const trimmed = key.trim();
+	if (trimmed.length < MIN_PARALLEL_API_KEY_LENGTH) {
+		return true;
+	}
+	return PLACEHOLDER_API_KEY_DENYLIST.has(trimmed.toLowerCase());
+}
+
 function resolveApiKey(): string | null {
 	const config = loadConfig();
-	return normalizeApiKey(process.env.PARALLEL_API_KEY) ?? normalizeApiKey(config.parallelApiKey);
+	const envKey = normalizeApiKey(process.env.PARALLEL_API_KEY);
+	if (envKey && !isPlaceholderApiKey(envKey)) {
+		return envKey;
+	}
+
+	const configKey = normalizeApiKey(config.parallelApiKey);
+	if (configKey && !isPlaceholderApiKey(configKey)) {
+		return configKey;
+	}
+
+	return null;
 }
 
 function getApiKey(): string {
