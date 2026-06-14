@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Parallel search provider via REST API (`provider: "parallel"` or auto-chain after Exa when `parallelApiKey` is configured).
+- Parallel Extract fallback in `fetch_content` when HTTP/Readability and Jina fail and `parallelApiKey` (or `PARALLEL_API_KEY`) is configured.
+
 ## [0.10.7] - 2026-05-02
 
 ### Added
