@@ -1,7 +1,7 @@
 # SP-004: searchWithParallel implementation — Status
 
-**Current Step:** Not Started
-**Status:** 🔵 Ready for Execution
+**Current Step:** Step 4 — Testing & Verification
+**Status:** 🟡 In Progress
 **Last Updated:** 2026-06-14
 **Review Level:** 1
 **Review Counter:** 0
@@ -11,10 +11,39 @@
 ---
 
 ### Step 0: Preflight
-**Status:** ⬜ Not Started
+**Status:** ✅ Complete
 
-- [ ] Dependencies satisfied
-- [ ] File scope paths exist or will be created
+- [x] Dependencies satisfied
+- [x] File scope paths exist or will be created
+
+---
+
+### Step 1: Implementation
+**Status:** ✅ Complete
+
+- [x] Wire searchWithParallel() to parallelFetch and mappers
+
+---
+
+### Step 2: Implementation
+**Status:** ✅ Complete
+
+- [x] Honor numResults, recencyFilter, domainFilter, includeContent, signal
+
+---
+
+### Step 3: Implementation
+**Status:** ✅ Complete
+
+- [x] Strict errors on missing key and non-2xx responses
+
+---
+
+### Step 4: Testing & Verification
+**Status:** 🟡 In Progress
+
+- [ ] Run FULL test suite: `npm test`
+- [ ] Fix all failures
 
 ---
 

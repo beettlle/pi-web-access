@@ -242,6 +242,29 @@ export function mapExtractResult(
 	};
 }
 
+export async function searchWithParallel(
+	query: string,
+	options: ParallelSearchOptions = {},
+): Promise<SearchResponse> {
+	const body = buildSearchRequestBody(query, options);
+	const data = await parallelFetch(PARALLEL_SEARCH_URL, body, options.signal);
+	const results = data.results as V1WebSearchResult[] | undefined;
+
+	const response: SearchResponse = {
+		answer: buildAnswerFromExcerpts(results),
+		results: mapSearchResults(results),
+	};
+
+	if (options.includeContent) {
+		const inlineContent = mapInlineContent(results);
+		if (inlineContent.length > 0) {
+			response.inlineContent = inlineContent;
+		}
+	}
+
+	return response;
+}
+
 async function parallelFetch(
 	url: string,
 	body: Record<string, unknown>,
