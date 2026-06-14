@@ -516,7 +516,66 @@ console.log(JSON.stringify({
 	assert.equal(parsed.inlineContent[0].url, "https://example.test/article");
 	assert.equal(parsed.inlineContent[0].content, "First excerpt.\n\nSecond excerpt.");
 	assert.equal(parsed.callBody?.objective, "parallel search query");
-	assert.deepEqual(parsed.callBody?.search_queries, ["parallel search query"]);
+	assert.ok(Array.isArray(parsed.callBody?.search_queries));
+	assert.ok(parsed.callBody.search_queries.length >= 2 && parsed.callBody.search_queries.length <= 3);
+	assert.ok(parsed.callBody.search_queries.every((query) => typeof query === "string" && query.length > 0));
+	assert.ok(new Set(parsed.callBody.search_queries).size === parsed.callBody.search_queries.length);
+	assert.ok(parsed.callBody.search_queries.includes("parallel search query"));
+});
+
+test("buildSearchQueriesFromObjective returns 2-3 diverse keyword queries", async () => {
+	const home = await createTempHome();
+	const child = runWithHome(home, `
+${buildParallelImportPreamble()}
+const { buildSearchQueriesFromObjective } = await import(${JSON.stringify(parallelModuleUrl)});
+const objective = "How do transformer attention mechanisms work in PyTorch and Hugging Face official documentation";
+const queries = buildSearchQueriesFromObjective(objective);
+console.log(JSON.stringify({ queries }));
+	`);
+
+	assertChildSuccess(child);
+	const parsed = JSON.parse(child.stdout.trim());
+	const { queries } = parsed;
+
+	assert.ok(Array.isArray(queries));
+	assert.ok(queries.length >= 2 && queries.length <= 3);
+	assert.ok(queries.every((query) => typeof query === "string" && query.length > 0));
+	assert.ok(new Set(queries).size === queries.length);
+	assert.ok(queries.every((query) => query.split(/\s+/).length <= 6));
+	assert.ok(queries.some((query) => query.includes("transformer")));
+	assert.ok(queries.some((query) => query.includes("pytorch") || query.includes("hugging")));
+});
+
+test("buildSearchRequestBody includes diverse search_queries in mocked fetch", async () => {
+	const home = await createTempHome();
+	await writeWebSearchConfig(home, { parallelApiKey: "test-key" });
+	const objective = "What clinical trial results on amyloid-beta therapies for Alzheimer's have been published recently";
+
+	const child = runSearchWithParallel(home, `
+${buildFetchMockScript([
+	{
+		urlMatch: "api.parallel.ai/v1/search",
+		response: { results: [] },
+	},
+])}
+const objective = ${JSON.stringify(objective)};
+await searchWithParallel(objective);
+const callBody = globalThis.__getParallelFetchCalls()[0]?.body ?? null;
+console.log(JSON.stringify({
+	objective: callBody?.objective ?? null,
+	search_queries: callBody?.search_queries ?? null,
+}));
+	`);
+
+	assertChildSuccess(child);
+	const parsed = JSON.parse(child.stdout.trim());
+
+	assert.equal(parsed.objective, objective);
+	assert.ok(Array.isArray(parsed.search_queries));
+	assert.ok(parsed.search_queries.length >= 2 && parsed.search_queries.length <= 3);
+	assert.ok(parsed.search_queries.every((query) => typeof query === "string" && query.length > 0));
+	assert.ok(new Set(parsed.search_queries).size === parsed.search_queries.length);
+	assert.ok(parsed.search_queries.some((query) => query.includes("amyloid") || query.includes("alzheimer")));
 });
 
 test("searchWithParallel returns empty answer for empty results", async () => {
@@ -575,7 +634,11 @@ console.log(JSON.stringify({
 
 	assert.equal(parsed.resultCount, 0);
 	assert.equal(parsed.callBody?.objective, "filtered query");
-	assert.deepEqual(parsed.callBody?.search_queries, ["filtered query"]);
+	assert.ok(Array.isArray(parsed.callBody?.search_queries));
+	assert.ok(parsed.callBody.search_queries.length >= 2 && parsed.callBody.search_queries.length <= 3);
+	assert.ok(parsed.callBody.search_queries.every((query) => typeof query === "string" && query.length > 0));
+	assert.ok(new Set(parsed.callBody.search_queries).size === parsed.callBody.search_queries.length);
+	assert.ok(parsed.callBody.search_queries.includes("filtered query"));
 	assert.equal(parsed.callBody?.advanced_settings?.max_results, 10);
 	assert.deepEqual(sourcePolicy?.include_domains, ["example.com"]);
 	assert.deepEqual(sourcePolicy?.exclude_domains, ["spam.com"]);
