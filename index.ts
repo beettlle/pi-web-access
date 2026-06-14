@@ -35,6 +35,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { isPerplexityAvailable } from "./perplexity.js";
 import { isExaAvailable } from "./exa.js";
+import { isParallelAvailable } from "./parallel.js";
 import { isGeminiApiAvailable } from "./gemini-api.js";
 import { getActiveGoogleEmail, isGeminiWebAvailable } from "./gemini-web.js";
 import { isBrowserCookieAccessAllowed } from "./gemini-web-config.ts";
@@ -56,6 +57,7 @@ interface ProviderAvailability {
 	perplexity: boolean;
 	exa: boolean;
 	gemini: boolean;
+	parallel: boolean;
 }
 
 type WebSearchWorkflow = "none" | "summary-review";
