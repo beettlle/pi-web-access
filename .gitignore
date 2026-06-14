@@ -1,2 +1,8 @@
 node_modules/
 bun.lock
+
+# pi-spine runtime
+.spine/runtime/
+.spine/batch-state.json
+.spine/batch-history.json
+.worktrees/
