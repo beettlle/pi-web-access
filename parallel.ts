@@ -109,6 +109,17 @@ export interface V1WebSearchResult {
 	excerpts?: string[];
 }
 
+export interface V1ExtractResult {
+	url: string;
+	title?: string | null;
+	publish_date?: string | null;
+	excerpts?: string[];
+	full_content?: string | null;
+}
+
+/** Matches MIN_USEFUL_CONTENT in extract.ts */
+const MIN_USEFUL_CONTENT = 500;
+
 export interface ParallelSearchOptions extends SearchOptions {
 	includeContent?: boolean;
 }
@@ -210,6 +221,25 @@ export function mapInlineContent(results: V1WebSearchResult[] | undefined): Extr
 			content: normalizeExcerpts(r.excerpts).join("\n\n"),
 			error: null,
 		}));
+}
+
+function resolveExtractContent(result: V1ExtractResult): string {
+	const fullContent = typeof result.full_content === "string" ? result.full_content.trim() : "";
+	if (fullContent.length > 0) return fullContent;
+	return normalizeExcerpts(result.excerpts).join("\n\n");
+}
+
+export function mapExtractResult(
+	result: V1ExtractResult | undefined | null,
+): { url: string; title: string; content: string } | null {
+	if (!result?.url) return null;
+	const content = resolveExtractContent(result);
+	if (content.length < MIN_USEFUL_CONTENT) return null;
+	return {
+		url: result.url,
+		title: typeof result.title === "string" ? result.title.trim() : "",
+		content,
+	};
 }
 
 async function parallelFetch(
