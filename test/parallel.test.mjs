@@ -623,12 +623,129 @@ ${buildFetchMockScript([
 	},
 ])}
 const result = await extractWithParallel(${JSON.stringify(extractTargetUrl)});
-console.log(JSON.stringify({ result }));
+const calls = globalThis.__getParallelFetchCalls();
+console.log(JSON.stringify({ result, callCount: calls.length }));
 	`);
 
 	assertChildSuccess(child);
 	const parsed = JSON.parse(child.stdout.trim());
 	assert.equal(parsed.result, null);
+	assert.equal(parsed.callCount, 2);
+});
+
+test("extractWithParallel retries with full_content when initial excerpts are too short", async () => {
+	const home = await createTempHome();
+	await writeWebSearchConfig(home, { parallelApiKey: "test-key" });
+	const thinExcerpt = buildUsefulContent("t", 120);
+	const fullContent = buildUsefulContent("F");
+
+	const child = runExtractWithParallel(home, `
+const extractTargetUrl = ${JSON.stringify(extractTargetUrl)};
+const __parallelFetchCalls = [];
+let __extractCallCount = 0;
+
+globalThis.fetch = async (url, init = {}) => {
+	const urlStr = String(url);
+	const method = init.method ?? "GET";
+	const bodyText = init.body == null ? null : String(init.body);
+	const body = bodyText ? JSON.parse(bodyText) : null;
+	const call = { url: urlStr, method, headers: init.headers ?? {}, body };
+	__parallelFetchCalls.push(call);
+
+	if (!urlStr.includes("api.parallel.ai/v1/extract")) {
+		throw new Error("Unexpected fetch to " + urlStr);
+	}
+
+	__extractCallCount += 1;
+	const wantsFullContent = body?.advanced_settings?.full_content === true;
+	const responseBody = wantsFullContent
+		? {
+			results: [
+				{
+					url: extractTargetUrl,
+					title: "Full Article",
+					full_content: ${JSON.stringify(fullContent)},
+				},
+			],
+		}
+		: {
+			results: [
+				{
+					url: extractTargetUrl,
+					title: "Thin Article",
+					excerpts: [${JSON.stringify(thinExcerpt)}],
+				},
+			],
+		};
+
+	return {
+		ok: true,
+		status: 200,
+		async text() {
+			return JSON.stringify(responseBody);
+		},
+		async json() {
+			return responseBody;
+		},
+	};
+};
+
+globalThis.__getParallelFetchCalls = () => __parallelFetchCalls;
+
+const result = await extractWithParallel(${JSON.stringify(extractTargetUrl)});
+const calls = globalThis.__getParallelFetchCalls();
+console.log(JSON.stringify({
+	result,
+	callCount: calls.length,
+	firstCallBody: calls[0]?.body ?? null,
+	retryCallBody: calls[1]?.body ?? null,
+}));
+	`);
+
+	assertChildSuccess(child);
+	const parsed = JSON.parse(child.stdout.trim());
+
+	assert.ok(parsed.result);
+	assert.equal(parsed.result.url, extractTargetUrl);
+	assert.equal(parsed.result.title, "Full Article");
+	assert.equal(parsed.result.content, fullContent);
+	assert.equal(parsed.result.error, null);
+	assert.equal(parsed.callCount, 2);
+	assert.equal(parsed.firstCallBody?.advanced_settings?.full_content, undefined);
+	assert.equal(parsed.retryCallBody?.advanced_settings?.full_content, true);
+});
+
+test("extractWithParallel does not retry when initial content is useful", async () => {
+	const home = await createTempHome();
+	await writeWebSearchConfig(home, { parallelApiKey: "test-key" });
+	const usefulContent = buildUsefulContent("u");
+
+	const child = runExtractWithParallel(home, `
+${buildFetchMockScript([
+	{
+		urlMatch: "api.parallel.ai/v1/extract",
+		response: {
+			results: [
+				{
+					url: extractTargetUrl,
+					title: "Useful Article",
+					excerpts: [usefulContent],
+				},
+			],
+		},
+	},
+])}
+const result = await extractWithParallel(${JSON.stringify(extractTargetUrl)});
+const calls = globalThis.__getParallelFetchCalls();
+console.log(JSON.stringify({ result, callCount: calls.length }));
+	`);
+
+	assertChildSuccess(child);
+	const parsed = JSON.parse(child.stdout.trim());
+
+	assert.ok(parsed.result);
+	assert.equal(parsed.result.content, usefulContent);
+	assert.equal(parsed.callCount, 1);
 });
 
 test("extractWithParallel returns null when url appears in errors array", async () => {
