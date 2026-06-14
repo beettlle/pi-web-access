@@ -21,8 +21,9 @@ async function writeWebSearchConfig(home, config) {
 }
 
 function runWithHome(home, script, extraEnv = {}) {
-	const env = { ...process.env, HOME: home, USERPROFILE: home, ...extraEnv };
+	const env = { ...process.env, HOME: home, USERPROFILE: home };
 	delete env.PARALLEL_API_KEY;
+	Object.assign(env, extraEnv);
 
 	return spawnSync(process.execPath, ["--input-type=module"], {
 		input: wrapChildScript(script),
@@ -93,6 +94,41 @@ globalThis.__getParallelFetchCalls = () => __parallelFetchCalls;
 function assertChildSuccess(child, label = "child process") {
 	assert.equal(child.status, 0, `${label} failed:\n${child.stderr}`);
 }
+
+function runIsParallelAvailableCheck(home, extraEnv = {}) {
+	return runWithHome(
+		home,
+		`const { isParallelAvailable } = await import(${JSON.stringify(parallelModuleUrl)});
+console.log(String(isParallelAvailable()));`,
+		extraEnv,
+	);
+}
+
+test("isParallelAvailable returns false with empty HOME", async () => {
+	const home = await createTempHome();
+	const child = runIsParallelAvailableCheck(home);
+
+	assertChildSuccess(child);
+	assert.equal(child.stdout.trim(), "false");
+});
+
+test("isParallelAvailable returns true with parallelApiKey in web-search.json", async () => {
+	const home = await createTempHome();
+	await writeWebSearchConfig(home, { parallelApiKey: "test-key" });
+
+	const child = runIsParallelAvailableCheck(home);
+
+	assertChildSuccess(child);
+	assert.equal(child.stdout.trim(), "true");
+});
+
+test("isParallelAvailable returns true with PARALLEL_API_KEY env", async () => {
+	const home = await createTempHome();
+	const child = runIsParallelAvailableCheck(home, { PARALLEL_API_KEY: "env-key" });
+
+	assertChildSuccess(child);
+	assert.equal(child.stdout.trim(), "true");
+});
 
 test("runWithHome uses an isolated HOME directory", async () => {
 	const home = await createTempHome();
