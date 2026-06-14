@@ -2,7 +2,15 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const CONFIG_PATH = join(homedir(), ".pi", "web-search.json");
+function getConfigPath(): string {
+	const agentDir = process.env.PI_CODING_AGENT_DIR;
+	if (agentDir) return join(agentDir, "web-search.json");
+	const xdgConfig = process.env.XDG_CONFIG_HOME;
+	if (xdgConfig) return join(xdgConfig, "pi", "web-search.json");
+	return join(homedir(), ".pi", "web-search.json");
+}
+
+const CONFIG_PATH = getConfigPath();
 
 interface GeminiWebConfig {
 	chromeProfile?: string;

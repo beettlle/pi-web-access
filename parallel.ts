@@ -1,13 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { activityMonitor } from "./activity.js";
+import { getWebSearchConfigPath } from "./utils.js";
 import type { ExtractedContent, ExtractOptions } from "./extract.js";
 import type { SearchOptions, SearchResponse } from "./perplexity.js";
 
 const PARALLEL_SEARCH_URL = "https://api.parallel.ai/v1/search";
 const PARALLEL_EXTRACT_URL = "https://api.parallel.ai/v1/extract";
-const CONFIG_PATH = join(homedir(), ".pi", "web-search.json");
+const CONFIG_PATH = getWebSearchConfigPath();
 const MIN_PARALLEL_API_KEY_LENGTH = 8;
 
 const RATE_LIMIT = {

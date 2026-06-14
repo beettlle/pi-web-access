@@ -8,7 +8,7 @@ import { clearCloneCache } from "./github-extract.js";
 import { search, type SearchProvider, type ResolvedSearchProvider } from "./gemini-search.js";
 import { executeCodeSearch } from "./code-search.js";
 import type { SearchResult } from "./perplexity.js";
-import { formatSeconds } from "./utils.js";
+import { formatSeconds, getWebSearchConfigDir } from "./utils.js";
 import {
 	clearResults,
 	deleteResult,
@@ -31,7 +31,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { platform, homedir } from "node:os";
+import { platform } from "node:os";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { isPerplexityAvailable } from "./perplexity.js";
@@ -41,7 +41,7 @@ import { isGeminiApiAvailable } from "./gemini-api.js";
 import { getActiveGoogleEmail, isGeminiWebAvailable } from "./gemini-web.js";
 import { isBrowserCookieAccessAllowed } from "./gemini-web-config.ts";
 
-const WEB_SEARCH_CONFIG_PATH = join(homedir(), ".pi", "web-search.json");
+const WEB_SEARCH_CONFIG_PATH = join(getWebSearchConfigDir(), "web-search.json");
 
 interface WebSearchConfig {
 	provider?: string;
@@ -94,7 +94,7 @@ function saveConfig(updates: Partial<WebSearchConfig>): void {
 	}
 
 	Object.assign(config, updates);
-	const dir = join(homedir(), ".pi");
+	const dir = getWebSearchConfigDir();
 	if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 	writeFileSync(WEB_SEARCH_CONFIG_PATH, JSON.stringify(config, null, 2) + "\n");
 	clearParallelConfigCache();
@@ -2301,7 +2301,7 @@ export default function (pi: ExtensionAPI) {
 			if (!isBrowserCookieAccessAllowed()) {
 				pi.sendMessage({
 					customType: "google-account",
-					content: [{ type: "text", text: "Gemini Web browser cookie access is disabled. Set allowBrowserCookies: true in ~/.pi/web-search.json to enable it." }],
+					content: [{ type: "text", text: `Gemini Web browser cookie access is disabled. Set allowBrowserCookies: true in ${WEB_SEARCH_CONFIG_PATH} to enable it.` }],
 					display: "tool",
 					details: { available: false, cookieAccessAllowed: false },
 				}, { triggerTurn: true, deliverAs: "followUp" });

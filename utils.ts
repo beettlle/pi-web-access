@@ -1,3 +1,25 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+export function getWebSearchConfigDir(): string {
+	// 1. PI_CODING_AGENT_DIR takes priority
+	const agentDir = process.env.PI_CODING_AGENT_DIR;
+	if (agentDir) {
+		return agentDir; // e.g. ~/.config/pi/agent/
+	}
+	// 2. XDG_CONFIG_HOME fallback
+	const xdgConfig = process.env.XDG_CONFIG_HOME;
+	if (xdgConfig) {
+		return join(xdgConfig, "pi");
+	}
+	// 3. Default
+	return join(homedir(), ".pi");
+}
+
+export function getWebSearchConfigPath(): string {
+	return join(getWebSearchConfigDir(), "web-search.json");
+}
+
 export function formatSeconds(s: number): string {
 	const h = Math.floor(s / 3600);
 	const m = Math.floor((s % 3600) / 60);
