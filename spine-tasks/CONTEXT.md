@@ -2,68 +2,40 @@
 
 **Last Updated:** 2026-06-14
 **Status:** Active
-**Next Task ID:** SP-024
+**Next Task ID:** SP-035
 
 ---
 
 ## Current State
 
-Parallel provider integration epic. Plans moved from Cursor CreatePlan artifacts to `spine-tasks/_explore/parallel-provider-integration/`.
+Parallel provider integration complete (SP-001–SP-023). Audit hardening and upstream PR staged (SP-024–SP-034).
 
 **Explore complete:** parallel-provider-integration (2026-06-14)
 
-### Phase 1 — parallel.ts foundation
+### Phase 1–6 — Parallel integration (complete)
+
+SP-001 through SP-023 delivered parallel.ts, routing, curator UI, tests, and docs. All have `.DONE`.
+
+### Phase 7 — Audit hardening
 
 | Task | Summary | Status | Deps |
 |------|---------|--------|------|
-| SP-001 | Config/auth | Pending | — |
-| SP-002 | Request infra | Pending | SP-001 |
-| SP-003 | Search mappers | Pending | SP-001 |
-| SP-004 | searchWithParallel | Pending | SP-002, SP-003 |
-| SP-005 | Extract mappers | Pending | SP-001 |
-| SP-006 | extractWithParallel | Pending | SP-002, SP-005 |
+| SP-024 | Placeholder key rejection | Pending | — |
+| SP-025 | Snippet mapping | Pending | SP-024 |
+| SP-026 | Extract full_content retry | Pending | SP-025 |
+| SP-027 | Config cache invalidation | Pending | SP-026 |
+| SP-028 | Provider parallel vs auto docs | Pending | — |
+| SP-029 | resolveProvider unavailable fix | Pending | — |
+| SP-030 | Curator disabled Parallel button | Pending | — |
+| SP-031 | Diverse search_queries | Pending | SP-027 |
+| SP-032 | Client rate limit | Pending | SP-031 |
 
-### Phase 2 — gemini-search.ts routing
-
-| Task | Summary | Status | Deps |
-|------|---------|--------|------|
-| SP-007 | Types/imports | Pending | SP-004 |
-| SP-008 | Explicit branch | Pending | SP-007 |
-| SP-009 | Auto-chain | Pending | SP-007 |
-| SP-010 | Error messages | Pending | SP-009 |
-
-### Phase 3 — index.ts provider wiring
+### Phase 8 — Upstream PR (last)
 
 | Task | Summary | Status | Deps |
 |------|---------|--------|------|
-| SP-011 | Availability type | Pending | SP-001 |
-| SP-012 | getProviderAvailability | Pending | SP-011 |
-| SP-013 | normalizeProviderInput | Pending | — |
-| SP-014 | resolveProvider | Pending | SP-012, SP-013 |
-| SP-015 | Tool schema | Pending | SP-013 |
-
-### Phase 4 — Integration
-
-| Task | Summary | Status | Deps |
-|------|---------|--------|------|
-| SP-016 | extract fallback | Pending | SP-006, SP-010 |
-| SP-017 | Curator UI | Pending | SP-014, SP-015 |
-
-### Phase 5 — Tests
-
-| Task | Summary | Status | Deps |
-|------|---------|--------|------|
-| SP-018 | Test harness | Pending | SP-004, SP-006 |
-| SP-019 | Availability tests | Pending | SP-018 |
-| SP-020 | Search mapper tests | Pending | SP-018, SP-003 |
-| SP-021 | Extract mapper tests | Pending | SP-018, SP-005 |
-| SP-022 | Routing smoke | Pending | SP-018, SP-009, SP-014 |
-
-### Phase 6 — Docs
-
-| Task | Summary | Status | Deps |
-|------|---------|--------|------|
-| SP-023 | README + CHANGELOG | Pending | SP-016, SP-017, SP-022 |
+| SP-033 | Prepare upstream branch | Pending | SP-027, SP-028, SP-029, SP-030, SP-032 |
+| SP-034 | Open PR to nicobailon/pi-web-access | Pending | SP-033 |
 
 ---
 
@@ -71,9 +43,12 @@ Parallel provider integration epic. Plans moved from Cursor CreatePlan artifacts
 
 **Auto-chain order:** Exa → Parallel → Perplexity → Gemini
 
+**Upstream target:** https://github.com/nicobailon/pi-web-access (PR via SP-034; no standalone npm publish)
+
 1. **Preflight** before every batch: `spine preflight`.
 2. **Land loop:** `spine batch start` → `spine status --diagnose` → `spine gate approve` → `spine integrate` → `spine batch complete`.
 3. **Never** hand-edit `.spine/batch-state.json`.
+4. **parallel.ts serial chain:** SP-024→032 must not run in parallel lanes.
 
 **Launch:** `spine tasks validate pending` → `spine plan pending` → `spine preflight` → `spine batch start pending`
 
