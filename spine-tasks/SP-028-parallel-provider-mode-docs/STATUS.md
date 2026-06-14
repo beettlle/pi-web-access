@@ -1,7 +1,7 @@
 # SP-028: Document provider parallel vs auto — Status
 
-**Current Step:** Step 1
-**Status:** 🟡 In Progress
+**Current Step:** Complete
+**Status:** ✅ Complete
 **Last Updated:** 2026-06-14
 **Review Level:** 0
 **Review Counter:** 0
@@ -53,6 +53,8 @@
 
 | Discovery | Disposition | Location |
 |-----------|-------------|----------|
+| SP-023 already documented auto-chain order and Parallel config; SP-028 adds explicit strict vs auto semantics | Documented in README + CHANGELOG | README.md, CHANGELOG.md |
+| Exa is documented as the one explicit provider that can fall back to MCP when unkeyed | Noted in provider modes paragraph | README.md |
 
 ---
 
@@ -61,6 +63,8 @@
 | Timestamp | Action | Outcome |
 |-----------|--------|---------|
 | 2026-06-14 | Task staged | PROMPT.md and STATUS.md created |
+| 2026-06-14 | Steps 0–3 | README provider modes + params + config; CHANGELOG strict vs auto note; npm test 19/19 pass |
+| 2026-06-14 | Step 4 | Task complete; .DONE created |
 
 ---
 
