@@ -1,0 +1,1 @@
+{"schemaVersion":1,"eventId":"27e1bc2b-dbee-4d2b-9dca-c6f68b7465be","type":"task.step_completed","timestamp":"2026-06-14T23:23:53.678Z","batchId":"20260614T232057","payload":{"step":4,"checkboxesComplete":4,"checkboxesTotal":4},"correlationId":"736efc3c-a20c-431e-890a-1a5159d8cab6","laneId":"lane-1","taskId":"SP-029"}

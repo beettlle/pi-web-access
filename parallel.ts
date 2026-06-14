@@ -214,16 +214,24 @@ function normalizeExcerpts(value: unknown): string[] {
 	return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
 }
 
+const MAX_SEARCH_SNIPPET_LENGTH = 200;
+
+function truncateSearchSnippet(text: string): string {
+	return text.replace(/\s+/g, " ").trim().slice(0, MAX_SEARCH_SNIPPET_LENGTH);
+}
+
 export function mapSearchResults(results: V1WebSearchResult[] | undefined): SearchResponse["results"] {
 	if (!Array.isArray(results)) return [];
 	const mapped: SearchResponse["results"] = [];
 	for (let i = 0; i < results.length; i++) {
 		const item = results[i];
 		if (!item?.url) continue;
+		const excerpts = normalizeExcerpts(item.excerpts);
+		const snippet = excerpts.length > 0 ? truncateSearchSnippet(excerpts[0]) : "";
 		mapped.push({
 			title: item.title || `Source ${i + 1}`,
 			url: item.url,
-			snippet: "",
+			snippet,
 		});
 	}
 	return mapped;
