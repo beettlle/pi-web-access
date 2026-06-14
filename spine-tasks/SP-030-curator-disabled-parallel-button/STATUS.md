@@ -1,7 +1,7 @@
 # SP-030: Curator disabled Parallel button — Status
 
-**Current Step:** Not Started
-**Status:** 🔵 Ready for Execution
+**Current Step:** Step 0
+**Status:** 🟡 In Progress
 **Last Updated:** 2026-06-14
 **Review Level:** 1
 **Review Counter:** 0
@@ -11,10 +11,10 @@
 ---
 
 ### Step 0: Preflight
-**Status:** ⬜ Not Started
+**Status:** ✅ Complete
 
-- [ ] Dependencies satisfied
-- [ ] File scope paths exist or will be created
+- [x] Dependencies satisfied
+- [x] File scope paths exist or will be created
 
 ---
 
