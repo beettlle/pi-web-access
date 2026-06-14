@@ -1,0 +1,1 @@
+SP-021 complete: parallel extract mapper tests added to test/parallel.test.mjs; npm test 16/16 pass.
