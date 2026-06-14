@@ -318,36 +318,83 @@ function hasExtractUrlError(errors: unknown, url: string): boolean {
 	return false;
 }
 
-export async function extractWithParallel(
+export function buildExtractRequestBody(
 	url: string,
-	signal?: AbortSignal,
 	options: ExtractOptions = {},
-): Promise<ExtractedContent | null> {
+	settings: { fullContent?: boolean } = {},
+): Record<string, unknown> {
 	const body: Record<string, unknown> = { urls: [url] };
 	const prompt = options.prompt?.trim();
 	if (prompt) {
 		body.objective = prompt;
 	}
-
-	const data = await parallelFetch(PARALLEL_EXTRACT_URL, body, signal);
-
-	if (hasExtractUrlError(data.errors, url)) {
-		return null;
+	if (settings.fullContent) {
+		body.advanced_settings = { full_content: true };
 	}
+	return body;
+}
 
-	const results = data.results as V1ExtractResult[] | undefined;
-	const result = Array.isArray(results)
-		? results.find(item => item?.url === url) ?? results[0]
-		: undefined;
-	const mapped = mapExtractResult(result);
-	if (!mapped) return null;
+function findExtractResult(
+	results: V1ExtractResult[] | undefined,
+	url: string,
+): V1ExtractResult | undefined {
+	if (!Array.isArray(results)) return undefined;
+	return results.find(item => item?.url === url) ?? results[0];
+}
 
+function needsFullContentRetry(result: V1ExtractResult | undefined): boolean {
+	if (!result?.url) return false;
+	return resolveExtractContent(result).length < MIN_USEFUL_CONTENT;
+}
+
+function toExtractedContent(
+	mapped: { url: string; title: string; content: string },
+): ExtractedContent {
 	return {
 		url: mapped.url,
 		title: mapped.title,
 		content: mapped.content,
 		error: null,
 	};
+}
+
+async function fetchAndMapExtractResult(
+	url: string,
+	body: Record<string, unknown>,
+	signal?: AbortSignal,
+): Promise<{ mapped: ReturnType<typeof mapExtractResult>; result: V1ExtractResult | undefined }> {
+	const data = await parallelFetch(PARALLEL_EXTRACT_URL, body, signal);
+	if (hasExtractUrlError(data.errors, url)) {
+		return { mapped: null, result: undefined };
+	}
+	const result = findExtractResult(data.results as V1ExtractResult[] | undefined, url);
+	return { mapped: mapExtractResult(result), result };
+}
+
+export async function extractWithParallel(
+	url: string,
+	signal?: AbortSignal,
+	options: ExtractOptions = {},
+): Promise<ExtractedContent | null> {
+	const initial = await fetchAndMapExtractResult(
+		url,
+		buildExtractRequestBody(url, options),
+		signal,
+	);
+	if (initial.mapped) {
+		return toExtractedContent(initial.mapped);
+	}
+	if (!needsFullContentRetry(initial.result)) {
+		return null;
+	}
+
+	const retry = await fetchAndMapExtractResult(
+		url,
+		buildExtractRequestBody(url, options, { fullContent: true }),
+		signal,
+	);
+	if (!retry.mapped) return null;
+	return toExtractedContent(retry.mapped);
 }
 
 async function parallelFetch(
