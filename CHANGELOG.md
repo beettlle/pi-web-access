@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 - Parallel search provider via REST API (`provider: "parallel"` or auto-chain after Exa when `parallelApiKey` is configured).
 - Parallel Extract fallback in `fetch_content` when HTTP/Readability and Jina fail and `parallelApiKey` (or `PARALLEL_API_KEY`) is configured.
 
+### Changed
+- Documented provider selection semantics: `provider: "auto"` (default) walks **Exa → Parallel → Perplexity → Gemini** on failure; explicit `provider: "parallel"` is strict (missing key or API error fails immediately, no silent fallback to other providers).
+
 ## [0.10.7] - 2026-05-02
 
 ### Added
