@@ -1,7 +1,7 @@
 # SP-016: extract.ts Parallel fallback chain — Status
 
-**Current Step:** Not Started
-**Status:** 🔵 Ready for Execution
+**Current Step:** Step 4
+**Status:** 🟡 In Progress
 **Last Updated:** 2026-06-14
 **Review Level:** 1
 **Review Counter:** 0
@@ -11,10 +11,39 @@
 ---
 
 ### Step 0: Preflight
-**Status:** ⬜ Not Started
+**Status:** ✅ Complete
 
-- [ ] Dependencies satisfied
-- [ ] File scope paths exist or will be created
+- [x] Dependencies satisfied
+- [x] File scope paths exist or will be created
+
+---
+
+### Step 1: Implementation
+**Status:** ✅ Complete
+
+- [x] Import isParallelAvailable and extractWithParallel
+
+---
+
+### Step 2: Implementation
+**Status:** ✅ Complete
+
+- [x] Insert parallel extract step after Jina, before Gemini
+
+---
+
+### Step 3: Implementation
+**Status:** ✅ Complete
+
+- [x] Update final error guidance to mention Parallel API key
+
+---
+
+### Step 4: Testing & Verification
+**Status:** 🟡 In Progress
+
+- [ ] Run FULL test suite: `npm test`
+- [ ] Fix all failures
 
 ---
 
