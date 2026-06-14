@@ -2,6 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { activityMonitor } from "./activity.js";
+import type { ExtractedContent } from "./extract.js";
+import type { SearchOptions, SearchResponse } from "./perplexity.js";
 
 const PARALLEL_SEARCH_URL = "https://api.parallel.ai/v1/search";
 const PARALLEL_EXTRACT_URL = "https://api.parallel.ai/v1/extract";
@@ -98,6 +100,116 @@ function activityContext(
 	}
 
 	return { type: "fetch", url };
+}
+
+export interface V1WebSearchResult {
+	url: string;
+	title?: string | null;
+	publish_date?: string | null;
+	excerpts?: string[];
+}
+
+export interface ParallelSearchOptions extends SearchOptions {
+	includeContent?: boolean;
+}
+
+export function recencyToAfterDate(filter: string): string {
+	const now = new Date();
+	const offsets: Record<string, number> = {
+		day: 1,
+		week: 7,
+		month: 30,
+		year: 365,
+	};
+	const days = offsets[filter] ?? 0;
+	return new Date(now.getTime() - days * 86400000).toISOString().slice(0, 10);
+}
+
+export function mapDomainFilter(
+	domainFilter: string[] | undefined,
+): { include_domains?: string[]; exclude_domains?: string[] } {
+	if (!domainFilter?.length) return {};
+	const include_domains = domainFilter
+		.filter(d => !d.startsWith("-") && d.trim().length > 0)
+		.map(d => d.trim());
+	const exclude_domains = domainFilter
+		.filter(d => d.startsWith("-"))
+		.map(d => d.slice(1).trim())
+		.filter(Boolean);
+	return {
+		...(include_domains.length ? { include_domains } : {}),
+		...(exclude_domains.length ? { exclude_domains } : {}),
+	};
+}
+
+export function buildSearchRequestBody(
+	query: string,
+	options: ParallelSearchOptions = {},
+): Record<string, unknown> {
+	const numResults = Math.min(options.numResults ?? 5, 20);
+	const domainFilters = mapDomainFilter(options.domainFilter);
+	const afterDate = options.recencyFilter ? recencyToAfterDate(options.recencyFilter) : undefined;
+	const sourcePolicy = {
+		...domainFilters,
+		...(afterDate ? { after_date: afterDate } : {}),
+	};
+
+	return {
+		objective: query,
+		search_queries: [query],
+		advanced_settings: {
+			max_results: numResults,
+			...(Object.keys(sourcePolicy).length > 0 ? { source_policy: sourcePolicy } : {}),
+		},
+	};
+}
+
+function normalizeExcerpts(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+	return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
+export function mapSearchResults(results: V1WebSearchResult[] | undefined): SearchResponse["results"] {
+	if (!Array.isArray(results)) return [];
+	const mapped: SearchResponse["results"] = [];
+	for (let i = 0; i < results.length; i++) {
+		const item = results[i];
+		if (!item?.url) continue;
+		mapped.push({
+			title: item.title || `Source ${i + 1}`,
+			url: item.url,
+			snippet: "",
+		});
+	}
+	return mapped;
+}
+
+export function buildAnswerFromExcerpts(results: V1WebSearchResult[] | undefined): string {
+	if (!results?.length) return "";
+	const parts: string[] = [];
+	for (let i = 0; i < results.length; i++) {
+		const item = results[i];
+		if (!item?.url) continue;
+		const excerpts = normalizeExcerpts(item.excerpts);
+		if (!excerpts.length) continue;
+		const content = excerpts.join(" ");
+		const sourceTitle = item.title || `Source ${i + 1}`;
+		parts.push(`${content}\nSource: ${sourceTitle} (${item.url})`);
+	}
+	return parts.join("\n\n");
+}
+
+export function mapInlineContent(results: V1WebSearchResult[] | undefined): ExtractedContent[] {
+	if (!results?.length) return [];
+	return results
+		.filter((r): r is V1WebSearchResult & { url: string; excerpts: string[] } =>
+			!!r?.url && normalizeExcerpts(r.excerpts).length > 0)
+		.map(r => ({
+			url: r.url,
+			title: r.title || "",
+			content: normalizeExcerpts(r.excerpts).join("\n\n"),
+			error: null,
+		}));
 }
 
 async function parallelFetch(
