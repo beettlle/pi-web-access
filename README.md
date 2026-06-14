@@ -39,7 +39,7 @@ Works immediately with no API keys — Exa MCP provides zero-config search. Para
 }
 ```
 
-In `auto` mode (default), `web_search` tries Exa first (direct API if keyed, MCP if not), then Parallel when keyed, then Perplexity, then Gemini API, then Gemini Web when browser-cookie access is enabled. Parallel search answers are excerpt-based (like Exa), not synthesized prose (like Perplexity).
+**Provider modes:** `provider: "auto"` (default) walks the fallback chain **Exa → Parallel → Perplexity → Gemini** (Gemini API, then Gemini Web when browser cookies are enabled). Each step is tried only when the prior provider fails or is unavailable; Parallel is skipped when no API key is configured. Explicit providers (`"parallel"`, `"perplexity"`, `"gemini"`) are **strict** — missing keys or API errors surface immediately with no silent fallback. Exa is the exception: without an API key it falls back to Exa MCP, but with a key configured, Exa errors do not fall through. Parallel search answers are excerpt-based (like Exa), not synthesized prose (like Perplexity).
 
 Optional dependencies for video frame extraction:
 
@@ -95,7 +95,7 @@ web_search({ queries: ["query 1", "query 2"], workflow: "summary-review" })
 | `numResults` | Results per query (default: 5, max: 20) |
 | `recencyFilter` | `day`, `week`, `month`, or `year` |
 | `domainFilter` | Limit to domains (prefix with `-` to exclude) |
-| `provider` | `auto` (default), `exa`, `parallel`, `perplexity`, or `gemini` |
+| `provider` | `auto` (default), `exa`, `parallel`, `perplexity`, or `gemini`. **`auto`** tries Exa → Parallel (when keyed) → Perplexity → Gemini on failure. **`parallel`** (and other explicit providers except Exa without a key) are strict — no fallback; a missing `parallelApiKey` or API error fails the call. |
 | `includeContent` | Fetch full page content from sources in background |
 | `workflow` | `none` (skip curator) or `summary-review` (auto-generate summary draft after search completion, default) |
 
@@ -292,7 +292,7 @@ All config lives in `~/.pi/web-search.json`. Every field is optional.
 }
 ```
 
-`EXA_API_KEY`, `PARALLEL_API_KEY`, `GEMINI_API_KEY`, and `PERPLEXITY_API_KEY` env vars take precedence over config file values. `provider` sets the default search provider: `"exa"`, `"parallel"`, `"perplexity"`, or `"gemini"`. This is also updated automatically when you change the provider in the curator UI. `workflow` sets the default curator mode: `"summary-review"` (default, opens curator with auto-generated summary draft) or `"none"` (raw results, no curator). Overridden per-call via the `workflow` parameter on `web_search`, or toggled at runtime with `/curator`. `chromeProfile` overrides the Chromium profile directory used for Gemini Web cookie lookup. `allowBrowserCookies` enables Chromium cookie extraction for Gemini Web; it defaults to `false` to avoid surprise macOS Keychain prompts. You can also set `PI_ALLOW_BROWSER_COOKIES=1`. `searchModel` overrides the Gemini API model used by `web_search` without changing URL, YouTube, or video extraction defaults. `summaryModel` sets the default model used for generating summary drafts in the curator UI (e.g. `"anthropic/claude-haiku-4-5"` or `"openai-codex/gpt-5.3-codex-spark"`). Only models available in your model registry are eligible; if the configured model is unavailable, the default falls back to the built-in preference list. `curatorTimeoutSeconds` controls the initial curator idle timeout (default `20`, max `600`); users can still adjust the timer in the curator UI.
+`EXA_API_KEY`, `PARALLEL_API_KEY`, `GEMINI_API_KEY`, and `PERPLEXITY_API_KEY` env vars take precedence over config file values. `provider` sets the default search provider: `"auto"` (fallback chain), `"exa"`, `"parallel"`, `"perplexity"`, or `"gemini"`. Use `"auto"` for resilient multi-provider search; use `"parallel"` when you want Parallel only (strict — requires `parallelApiKey` or `PARALLEL_API_KEY`, errors are not silently routed to another provider). This is also updated automatically when you change the provider in the curator UI. `workflow` sets the default curator mode: `"summary-review"` (default, opens curator with auto-generated summary draft) or `"none"` (raw results, no curator). Overridden per-call via the `workflow` parameter on `web_search`, or toggled at runtime with `/curator`. `chromeProfile` overrides the Chromium profile directory used for Gemini Web cookie lookup. `allowBrowserCookies` enables Chromium cookie extraction for Gemini Web; it defaults to `false` to avoid surprise macOS Keychain prompts. You can also set `PI_ALLOW_BROWSER_COOKIES=1`. `searchModel` overrides the Gemini API model used by `web_search` without changing URL, YouTube, or video extraction defaults. `summaryModel` sets the default model used for generating summary drafts in the curator UI (e.g. `"anthropic/claude-haiku-4-5"` or `"openai-codex/gpt-5.3-codex-spark"`). Only models available in your model registry are eligible; if the configured model is unavailable, the default falls back to the built-in preference list. `curatorTimeoutSeconds` controls the initial curator idle timeout (default `20`, max `600`); users can still adjust the timer in the curator UI.
 
 ### Shortcuts
 
