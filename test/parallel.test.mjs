@@ -91,6 +91,34 @@ globalThis.__getParallelFetchCalls = () => __parallelFetchCalls;
 `;
 }
 
+function buildActivityMockRegisterScript() {
+	const hookSource = [
+		"export async function resolve(specifier, context, nextResolve) {",
+		'  if (specifier.endsWith("activity.js")) {',
+		"    return {",
+		'      url: "data:text/javascript," + encodeURIComponent(' +
+			JSON.stringify(
+				"export const activityMonitor = { logStart: () => \"mock-activity-id\", logComplete: () => {}, logError: () => {} };",
+			) +
+			"),",
+		'      format: "module",',
+		"      shortCircuit: true,",
+		"    };",
+		"  }",
+		"  return nextResolve(specifier, context);",
+		"}",
+	].join("\n");
+
+	return `
+import { register } from "node:module";
+register("data:text/javascript," + encodeURIComponent(${JSON.stringify(hookSource)}), import.meta.url);
+`;
+}
+
+function buildParallelImportPreamble() {
+	return `${buildActivityMockRegisterScript()}`;
+}
+
 function assertChildSuccess(child, label = "child process") {
 	assert.equal(child.status, 0, `${label} failed:\n${child.stderr}`);
 }
@@ -98,11 +126,37 @@ function assertChildSuccess(child, label = "child process") {
 function runIsParallelAvailableCheck(home, extraEnv = {}) {
 	return runWithHome(
 		home,
-		`const { isParallelAvailable } = await import(${JSON.stringify(parallelModuleUrl)});
+		`${buildParallelImportPreamble()}
+const { isParallelAvailable } = await import(${JSON.stringify(parallelModuleUrl)});
 console.log(String(isParallelAvailable()));`,
 		extraEnv,
 	);
 }
+
+function runSearchWithParallel(home, scriptBody, extraEnv = {}) {
+	return runWithHome(
+		home,
+		`${buildParallelImportPreamble()}
+const { searchWithParallel } = await import(${JSON.stringify(parallelModuleUrl)});
+${scriptBody}`,
+		extraEnv,
+	);
+}
+
+const sampleV1SearchResponse = {
+	results: [
+		{
+			url: "https://example.test/article",
+			title: "Example Article",
+			excerpts: ["First excerpt.", "Second excerpt."],
+		},
+		{
+			url: "https://example.test/other",
+			title: "Other Page",
+			excerpts: ["Other content here."],
+		},
+	],
+};
 
 test("isParallelAvailable returns false with empty HOME", async () => {
 	const home = await createTempHome();
@@ -203,4 +257,110 @@ console.log(JSON.stringify({
 
 test("parallel module URL is wired for downstream imports", () => {
 	assert.match(parallelModuleUrl, /parallel\.ts$/);
+});
+
+test("searchWithParallel maps V1SearchResponse to answer, results, and inlineContent", async () => {
+	const home = await createTempHome();
+	await writeWebSearchConfig(home, { parallelApiKey: "test-key" });
+
+	const child = runSearchWithParallel(home, `
+${buildFetchMockScript([
+	{
+		urlMatch: "api.parallel.ai/v1/search",
+		response: sampleV1SearchResponse,
+	},
+])}
+const result = await searchWithParallel("parallel search query", { includeContent: true });
+console.log(JSON.stringify({
+	answer: result.answer,
+	results: result.results,
+	inlineContent: result.inlineContent,
+	callBody: globalThis.__getParallelFetchCalls()[0]?.body ?? null,
+}));
+	`);
+
+	assertChildSuccess(child);
+	const parsed = JSON.parse(child.stdout.trim());
+
+	assert.match(parsed.answer, /First excerpt\.\s+Second excerpt\./);
+	assert.match(parsed.answer, /Source: Example Article \(https:\/\/example\.test\/article\)/);
+	assert.match(parsed.answer, /Other content here\./);
+	assert.match(parsed.answer, /Source: Other Page \(https:\/\/example\.test\/other\)/);
+	assert.equal(parsed.results.length, 2);
+	assert.equal(parsed.results[0].url, "https://example.test/article");
+	assert.equal(parsed.results[0].title, "Example Article");
+	assert.equal(parsed.results[0].snippet, "");
+	assert.equal(parsed.inlineContent?.length, 2);
+	assert.equal(parsed.inlineContent[0].url, "https://example.test/article");
+	assert.equal(parsed.inlineContent[0].content, "First excerpt.\n\nSecond excerpt.");
+	assert.equal(parsed.callBody?.objective, "parallel search query");
+	assert.deepEqual(parsed.callBody?.search_queries, ["parallel search query"]);
+});
+
+test("searchWithParallel returns empty answer for empty results", async () => {
+	const home = await createTempHome();
+	await writeWebSearchConfig(home, { parallelApiKey: "test-key" });
+
+	const child = runSearchWithParallel(home, `
+${buildFetchMockScript([
+	{
+		urlMatch: "api.parallel.ai/v1/search",
+		response: { results: [] },
+	},
+])}
+const result = await searchWithParallel("empty results query", { includeContent: true });
+console.log(JSON.stringify({
+	answer: result.answer,
+	results: result.results,
+	inlineContent: result.inlineContent,
+}));
+	`);
+
+	assertChildSuccess(child);
+	const parsed = JSON.parse(child.stdout.trim());
+
+	assert.equal(parsed.answer, "");
+	assert.deepEqual(parsed.results, []);
+	assert.equal(parsed.inlineContent, undefined);
+});
+
+test("searchWithParallel sends domain and recency fields in request body", async () => {
+	const home = await createTempHome();
+	await writeWebSearchConfig(home, { parallelApiKey: "test-key" });
+
+	const child = runSearchWithParallel(home, `
+${buildFetchMockScript([
+	{
+		urlMatch: "api.parallel.ai/v1/search",
+		response: { results: [] },
+	},
+])}
+const result = await searchWithParallel("filtered query", {
+	domainFilter: ["example.com", "-spam.com"],
+	recencyFilter: "week",
+	numResults: 10,
+});
+const callBody = globalThis.__getParallelFetchCalls()[0]?.body ?? null;
+console.log(JSON.stringify({
+	resultCount: result.results.length,
+	callBody,
+}));
+	`);
+
+	assertChildSuccess(child);
+	const parsed = JSON.parse(child.stdout.trim());
+	const sourcePolicy = parsed.callBody?.advanced_settings?.source_policy;
+
+	assert.equal(parsed.resultCount, 0);
+	assert.equal(parsed.callBody?.objective, "filtered query");
+	assert.deepEqual(parsed.callBody?.search_queries, ["filtered query"]);
+	assert.equal(parsed.callBody?.advanced_settings?.max_results, 10);
+	assert.deepEqual(sourcePolicy?.include_domains, ["example.com"]);
+	assert.deepEqual(sourcePolicy?.exclude_domains, ["spam.com"]);
+	assert.match(sourcePolicy?.after_date, /^\d{4}-\d{2}-\d{2}$/);
+
+	const afterDate = new Date(`${sourcePolicy.after_date}T00:00:00Z`);
+	const weekAgo = new Date(Date.now() - 7 * 86400000);
+	const dayMs = 86400000;
+	assert.ok(Math.abs(afterDate.getTime() - weekAgo.getTime()) < 2 * dayMs);
 });
