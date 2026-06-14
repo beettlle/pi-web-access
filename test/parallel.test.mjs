@@ -254,7 +254,45 @@ test("isParallelAvailable returns true with parallelApiKey in web-search.json", 
 
 test("isParallelAvailable returns true with PARALLEL_API_KEY env", async () => {
 	const home = await createTempHome();
-	const child = runIsParallelAvailableCheck(home, { PARALLEL_API_KEY: "env-key" });
+	const child = runIsParallelAvailableCheck(home, { PARALLEL_API_KEY: "env-key-ok" });
+
+	assertChildSuccess(child);
+	assert.equal(child.stdout.trim(), "true");
+});
+
+test("isParallelAvailable returns false for placeholder parallelApiKey values", async () => {
+	const home = await createTempHome();
+	const placeholders = [
+		"REPLACE_WITH_YOUR_PARALLEL_API_KEY",
+		"dummy",
+		"your-key",
+		"PARALLEL_API_KEY",
+	];
+
+	for (const parallelApiKey of placeholders) {
+		await writeWebSearchConfig(home, { parallelApiKey });
+		const child = runIsParallelAvailableCheck(home);
+
+		assertChildSuccess(child, `placeholder ${parallelApiKey}`);
+		assert.equal(child.stdout.trim(), "false", `expected false for ${parallelApiKey}`);
+	}
+});
+
+test("isParallelAvailable returns true for valid-shaped parallelApiKey", async () => {
+	const home = await createTempHome();
+	await writeWebSearchConfig(home, { parallelApiKey: "pk_live_abc1234567890ab" });
+
+	const child = runIsParallelAvailableCheck(home);
+
+	assertChildSuccess(child);
+	assert.equal(child.stdout.trim(), "true");
+});
+
+test("isParallelAvailable prefers valid PARALLEL_API_KEY over placeholder config key", async () => {
+	const home = await createTempHome();
+	await writeWebSearchConfig(home, { parallelApiKey: "REPLACE_WITH_YOUR_PARALLEL_API_KEY" });
+
+	const child = runIsParallelAvailableCheck(home, { PARALLEL_API_KEY: "pk_env_abc1234567890ab" });
 
 	assertChildSuccess(child);
 	assert.equal(child.stdout.trim(), "true");
