@@ -156,6 +156,7 @@ async function getProviderAvailability(): Promise<ProviderAvailability> {
 		perplexity: isPerplexityAvailable(),
 		exa: isExaAvailable(),
 		gemini: isGeminiApiAvailable() || !!geminiWebAvail,
+		parallel: isParallelAvailable(),
 	};
 }
 
