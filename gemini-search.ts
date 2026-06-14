@@ -164,6 +164,16 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 		}
 	}
 
+	if (provider !== "parallel" && isParallelAvailable()) {
+		try {
+			const result = await searchWithParallel(query, options);
+			if (result.answer || result.results.length > 0) return { ...result, provider: "parallel" };
+		} catch (err) {
+			if (isAbortError(err)) throw err;
+			fallbackErrors.push(`Parallel: ${errorMessage(err)}`);
+		}
+	}
+
 	if (isPerplexityAvailable()) {
 		try {
 			const result = await searchWithPerplexity(query, options);
@@ -190,8 +200,9 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 		"No search provider available. Either:\n" +
 		"  1. Set perplexityApiKey in ~/.pi/web-search.json\n" +
 		"  2. Set EXA_API_KEY (or exaApiKey) in ~/.pi/web-search.json\n" +
-		"  3. Set GEMINI_API_KEY in ~/.pi/web-search.json\n" +
-		"  4. Sign into gemini.google.com in a supported Chromium-based browser"
+		"  3. Set parallelApiKey (or PARALLEL_API_KEY) in ~/.pi/web-search.json\n" +
+		"  4. Set GEMINI_API_KEY in ~/.pi/web-search.json\n" +
+		"  5. Sign into gemini.google.com in a supported Chromium-based browser"
 	);
 }
 
