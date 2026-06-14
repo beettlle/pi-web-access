@@ -6,8 +6,9 @@ import { getApiKey, API_BASE, DEFAULT_MODEL } from "./gemini-api.js";
 import { isGeminiWebAvailable, queryWithCookies } from "./gemini-web.js";
 import { isPerplexityAvailable, searchWithPerplexity, type SearchResult, type SearchResponse, type SearchOptions } from "./perplexity.js";
 import { hasExaApiKey, isExaAvailable, searchWithExa } from "./exa.js";
+import { isParallelAvailable, searchWithParallel } from "./parallel.js";
 
-export type SearchProvider = "auto" | "perplexity" | "gemini" | "exa";
+export type SearchProvider = "auto" | "perplexity" | "gemini" | "exa" | "parallel";
 export type ResolvedSearchProvider = Exclude<SearchProvider, "auto">;
 
 export interface AttributedSearchResponse extends SearchResponse {
@@ -57,7 +58,7 @@ function normalizeSearchModel(value: unknown): string | undefined {
 
 function normalizeSearchProvider(value: unknown): SearchProvider {
 	const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
-	return normalized === "auto" || normalized === "perplexity" || normalized === "gemini" || normalized === "exa"
+	return normalized === "auto" || normalized === "perplexity" || normalized === "gemini" || normalized === "exa" || normalized === "parallel"
 		? normalized
 		: "auto";
 }
