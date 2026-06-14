@@ -196,7 +196,7 @@ function buildActivityMockRegisterScript() {
 		"    return {",
 		'      url: "data:text/javascript," + encodeURIComponent(' +
 			JSON.stringify(
-				"export const activityMonitor = { logStart: () => \"mock-activity-id\", logComplete: () => {}, logError: () => {} };",
+				"export const activityMonitor = { logStart: () => \"mock-activity-id\", logComplete: () => {}, logError: () => {}, updateRateLimit: () => {} };",
 			) +
 			"),",
 		'      format: "module",',
@@ -1011,4 +1011,160 @@ test("resolveProvider does not return parallel when unavailable and no providers
 	assertChildSuccess(child, "resolveProvider check");
 	assert.notEqual(child.stdout.trim(), "parallel");
 	assert.equal(child.stdout.trim(), "exa");
+});
+
+test("searchWithParallel rate limits after 10 requests in a 60s window", async () => {
+	const home = await createTempHome();
+	await writeWebSearchConfig(home, { parallelApiKey: "test-key" });
+
+	const child = runSearchWithParallel(home, `
+let mockNow = 1_700_000_000_000;
+Date.now = () => mockNow;
+
+${buildFetchMockScript([
+	{
+		urlMatch: "api.parallel.ai/v1/search",
+		response: { results: [] },
+	},
+])}
+
+const { clearParallelRateLimitState } = await import(${JSON.stringify(parallelModuleUrl)});
+clearParallelRateLimitState();
+
+let successCount = 0;
+let rateLimitError = null;
+
+for (let i = 0; i < 11; i++) {
+	try {
+		await searchWithParallel("rate limit query " + i);
+		successCount += 1;
+	} catch (err) {
+		rateLimitError = err instanceof Error ? err.message : String(err);
+		break;
+	}
+}
+
+console.log(JSON.stringify({
+	successCount,
+	rateLimitError,
+	callCount: globalThis.__getParallelFetchCalls().length,
+}));
+	`);
+
+	assertChildSuccess(child);
+	const parsed = JSON.parse(child.stdout.trim());
+
+	assert.equal(parsed.successCount, 10);
+	assert.equal(parsed.callCount, 10);
+	assert.match(parsed.rateLimitError, /^Rate limited\. Try again in \d+s$/);
+});
+
+test("extractWithParallel shares the parallel client rate limit with search", async () => {
+	const home = await createTempHome();
+	await writeWebSearchConfig(home, { parallelApiKey: "test-key" });
+	const fullContent = buildUsefulContent("R");
+
+	const child = runExtractWithParallel(home, `
+let mockNow = 1_700_000_000_000;
+Date.now = () => mockNow;
+
+${buildFetchMockScript([
+	{
+		urlMatch: "api.parallel.ai/v1/search",
+		response: { results: [] },
+	},
+	{
+		urlMatch: "api.parallel.ai/v1/extract",
+		response: {
+			results: [
+				{
+					url: extractTargetUrl,
+					title: "Rate Limit Article",
+					full_content: fullContent,
+				},
+			],
+		},
+	},
+])}
+
+const { clearParallelRateLimitState, searchWithParallel } = await import(${JSON.stringify(parallelModuleUrl)});
+clearParallelRateLimitState();
+
+for (let i = 0; i < 10; i++) {
+	await searchWithParallel("prefill rate limit " + i);
+}
+
+let extractError = null;
+try {
+	await extractWithParallel(${JSON.stringify(extractTargetUrl)});
+} catch (err) {
+	extractError = err instanceof Error ? err.message : String(err);
+}
+
+console.log(JSON.stringify({
+	extractError,
+	searchCallCount: globalThis.__getParallelFetchCalls().filter((call) => call.url.includes("/search")).length,
+	extractCallCount: globalThis.__getParallelFetchCalls().filter((call) => call.url.includes("/extract")).length,
+}));
+	`);
+
+	assertChildSuccess(child);
+	const parsed = JSON.parse(child.stdout.trim());
+
+	assert.equal(parsed.searchCallCount, 10);
+	assert.equal(parsed.extractCallCount, 0);
+	assert.match(parsed.extractError, /^Rate limited\. Try again in \d+s$/);
+});
+
+test("parallelFetch allows requests again after the 60s window elapses", async () => {
+	const home = await createTempHome();
+	await writeWebSearchConfig(home, { parallelApiKey: "test-key" });
+
+	const child = runSearchWithParallel(home, `
+let mockNow = 1_700_000_000_000;
+Date.now = () => mockNow;
+
+${buildFetchMockScript([
+	{
+		urlMatch: "api.parallel.ai/v1/search",
+		response: { results: [] },
+	},
+])}
+
+const { clearParallelRateLimitState } = await import(${JSON.stringify(parallelModuleUrl)});
+clearParallelRateLimitState();
+
+for (let i = 0; i < 10; i++) {
+	await searchWithParallel("window query " + i);
+}
+
+let blockedError = null;
+try {
+	await searchWithParallel("blocked query");
+} catch (err) {
+	blockedError = err instanceof Error ? err.message : String(err);
+}
+
+mockNow += 60_001;
+
+let afterWindowError = null;
+try {
+	await searchWithParallel("after window query");
+} catch (err) {
+	afterWindowError = err instanceof Error ? err.message : String(err);
+}
+
+console.log(JSON.stringify({
+	blockedError,
+	afterWindowError,
+	callCount: globalThis.__getParallelFetchCalls().length,
+}));
+	`);
+
+	assertChildSuccess(child);
+	const parsed = JSON.parse(child.stdout.trim());
+
+	assert.match(parsed.blockedError, /^Rate limited\. Try again in \d+s$/);
+	assert.equal(parsed.afterWindowError, null);
+	assert.equal(parsed.callCount, 11);
 });
