@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { activityMonitor } from "./activity.js";
-import type { ExtractedContent } from "./extract.js";
+import type { ExtractedContent, ExtractOptions } from "./extract.js";
 import type { SearchOptions, SearchResponse } from "./perplexity.js";
 
 const PARALLEL_SEARCH_URL = "https://api.parallel.ai/v1/search";
@@ -263,6 +263,49 @@ export async function searchWithParallel(
 	}
 
 	return response;
+}
+
+function hasExtractUrlError(errors: unknown, url: string): boolean {
+	if (!Array.isArray(errors) || errors.length === 0) return false;
+	for (const entry of errors) {
+		if (typeof entry === "string" && entry === url) return true;
+		if (typeof entry === "object" && entry !== null && (entry as { url?: unknown }).url === url) {
+			return true;
+		}
+	}
+	return false;
+}
+
+export async function extractWithParallel(
+	url: string,
+	signal?: AbortSignal,
+	options: ExtractOptions = {},
+): Promise<ExtractedContent | null> {
+	const body: Record<string, unknown> = { urls: [url] };
+	const prompt = options.prompt?.trim();
+	if (prompt) {
+		body.objective = prompt;
+	}
+
+	const data = await parallelFetch(PARALLEL_EXTRACT_URL, body, signal);
+
+	if (hasExtractUrlError(data.errors, url)) {
+		return null;
+	}
+
+	const results = data.results as V1ExtractResult[] | undefined;
+	const result = Array.isArray(results)
+		? results.find(item => item?.url === url) ?? results[0]
+		: undefined;
+	const mapped = mapExtractResult(result);
+	if (!mapped) return null;
+
+	return {
+		url: mapped.url,
+		title: mapped.title,
+		content: mapped.content,
+		error: null,
+	};
 }
 
 async function parallelFetch(
