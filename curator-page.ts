@@ -8,13 +8,14 @@ function safeInlineJSON(data: unknown): string {
 }
 
 function buildProviderButtons(
-	available: { perplexity: boolean; exa: boolean; gemini: boolean },
+	available: { perplexity: boolean; exa: boolean; gemini: boolean; parallel: boolean },
 	selected: string,
 	hasInitialQueries: boolean,
 ): string {
 	const providers = [
 		{ value: "perplexity", label: "Perplexity", available: available.perplexity },
 		{ value: "exa", label: "Exa", available: available.exa },
+		{ value: "parallel", label: "Parallel", available: available.parallel },
 		{ value: "gemini", label: "Gemini", available: available.gemini },
 	];
 
@@ -34,7 +35,7 @@ export function generateCuratorPage(
 	queries: string[],
 	sessionToken: string,
 	timeout: number,
-	availableProviders: { perplexity: boolean; exa: boolean; gemini: boolean },
+	availableProviders: { perplexity: boolean; exa: boolean; gemini: boolean; parallel: boolean },
 	defaultProvider: string,
 	summaryModels: Array<{ value: string; label: string }>,
 	defaultSummaryModel: string | null,
@@ -630,6 +631,11 @@ main {
   color: #8dd3ff;
   background: rgba(141, 211, 255, 0.14);
   border-color: rgba(141, 211, 255, 0.3);
+}
+.provider-tag.provider-parallel {
+  color: #7ee8b8;
+  background: rgba(126, 232, 184, 0.14);
+  border-color: rgba(126, 232, 184, 0.3);
 }
 .provider-tag.provider-perplexity {
   color: #cba6f7;
@@ -1364,7 +1370,7 @@ const SCRIPT = `(function() {
   var token = DATA.sessionToken;
   var timeoutSec = DATA.timeout;
   var queries = Array.isArray(DATA.queries) ? DATA.queries : [];
-  var providers = ["perplexity", "exa", "gemini"];
+  var providers = ["perplexity", "exa", "parallel", "gemini"];
   var availProviders = DATA.availableProviders && typeof DATA.availableProviders === "object" ? DATA.availableProviders : {};
   var workflow = "summary-review";
   var initialDefaultProvider = typeof DATA.defaultProvider === "string" ? DATA.defaultProvider : "exa";
@@ -1563,6 +1569,7 @@ const SCRIPT = `(function() {
   function providerLabel(provider) {
     if (provider === "perplexity") return "Perplexity";
     if (provider === "exa") return "Exa";
+    if (provider === "parallel") return "Parallel";
     if (provider === "gemini") return "Gemini";
     return "Unknown";
   }
