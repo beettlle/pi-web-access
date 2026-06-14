@@ -177,20 +177,29 @@ function resolveProvider(
 
 	if (provider === "auto") {
 		if (available.exa) return "exa";
+		if (available.parallel) return "parallel";
 		if (available.perplexity) return "perplexity";
 		if (available.gemini) return "gemini";
 		return "exa";
 	}
 	if (provider === "exa" && !available.exa) {
+		if (available.parallel) return "parallel";
 		if (available.perplexity) return "perplexity";
 		return available.gemini ? "gemini" : "exa";
 	}
+	if (provider === "parallel" && !available.parallel) {
+		if (available.exa) return "exa";
+		if (available.perplexity) return "perplexity";
+		return available.gemini ? "gemini" : "parallel";
+	}
 	if (provider === "perplexity" && !available.perplexity) {
 		if (available.exa) return "exa";
+		if (available.parallel) return "parallel";
 		return available.gemini ? "gemini" : "perplexity";
 	}
 	if (provider === "gemini" && !available.gemini) {
 		if (available.exa) return "exa";
+		if (available.parallel) return "parallel";
 		return available.perplexity ? "perplexity" : "gemini";
 	}
 	return provider;
