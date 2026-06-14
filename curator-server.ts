@@ -12,7 +12,7 @@ export interface CuratorServerOptions {
 	queries: string[];
 	sessionToken: string;
 	timeout: number;
-	availableProviders: { perplexity: boolean; exa: boolean; gemini: boolean };
+	availableProviders: { perplexity: boolean; exa: boolean; gemini: boolean; parallel: boolean };
 	defaultProvider: string;
 	summaryModels: Array<{ value: string; label: string }>;
 	defaultSummaryModel: string | null;
@@ -228,6 +228,7 @@ export function startCuratorServer(
 	function isAvailableProvider(provider: string): boolean {
 		if (provider === "perplexity") return availableProviders.perplexity;
 		if (provider === "exa") return availableProviders.exa;
+		if (provider === "parallel") return availableProviders.parallel;
 		if (provider === "gemini") return availableProviders.gemini;
 		return false;
 	}
