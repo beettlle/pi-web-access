@@ -191,6 +191,83 @@ export function mapDomainFilter(
 	};
 }
 
+const SEARCH_QUERY_STOP_WORDS = new Set([
+	"a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by", "from", "about",
+	"what", "how", "why", "when", "where", "who", "which", "is", "are", "was", "were", "be", "been", "being",
+	"do", "does", "did", "have", "has", "had", "can", "could", "should", "would", "will", "may", "might",
+	"find", "get", "show", "tell", "give", "look", "looking", "latest", "information", "info",
+	"me", "my", "i", "you", "your", "their", "its", "this", "that", "these", "those",
+	"any", "all", "some", "such", "into", "over", "after", "before", "during", "between",
+	"based", "according", "using", "use", "via", "through", "against",
+	"current", "recent", "please", "including", "include",
+]);
+
+const MAX_SEARCH_QUERY_WORDS = 6;
+const MAX_SEARCH_QUERIES = 3;
+
+function normalizeSearchQueryWhitespace(text: string): string {
+	return text.replace(/\s+/g, " ").trim();
+}
+
+function objectiveTokens(objective: string): string[] {
+	return normalizeSearchQueryWhitespace(objective)
+		.toLowerCase()
+		.replace(/[^\p{L}\p{N}\s-]/gu, " ")
+		.split(/\s+/)
+		.filter(Boolean);
+}
+
+function meaningfulObjectiveTokens(tokens: string[]): string[] {
+	const filtered = tokens.filter(token => !SEARCH_QUERY_STOP_WORDS.has(token));
+	return filtered.length > 0 ? filtered : tokens;
+}
+
+function joinSearchQueryWords(words: string[]): string {
+	return normalizeSearchQueryWhitespace(words.slice(0, MAX_SEARCH_QUERY_WORDS).join(" "));
+}
+
+export function buildSearchQueriesFromObjective(objective: string): string[] {
+	const trimmed = normalizeSearchQueryWhitespace(objective);
+	if (!trimmed) return [];
+
+	const meaningful = meaningfulObjectiveTokens(objectiveTokens(trimmed));
+	const queries: string[] = [];
+	const seen = new Set<string>();
+
+	const addQuery = (words: string[]) => {
+		const query = joinSearchQueryWords(words);
+		if (!query) return;
+		const key = query.toLowerCase();
+		if (seen.has(key)) return;
+		seen.add(key);
+		queries.push(query);
+	};
+
+	addQuery(meaningful);
+
+	if (meaningful.length > 3) {
+		addQuery(meaningful.slice(-4));
+	}
+
+	if (meaningful.length > 4) {
+		addQuery([...meaningful.slice(0, 3), ...meaningful.slice(-2)]);
+	}
+
+	if (queries.length < 2 && meaningful.length >= 2) {
+		addQuery(meaningful.slice(0, 2));
+	}
+
+	if (queries.length < 2 && meaningful.length >= 2) {
+		addQuery(meaningful.slice(-2));
+	}
+
+	if (queries.length < 2 && meaningful.length === 2) {
+		addQuery([meaningful[1], meaningful[0]]);
+	}
+
+	return queries.slice(0, MAX_SEARCH_QUERIES);
+}
+
 export function buildSearchRequestBody(
 	query: string,
 	options: ParallelSearchOptions = {},
@@ -205,7 +282,7 @@ export function buildSearchRequestBody(
 
 	return {
 		objective: query,
-		search_queries: [query],
+		search_queries: buildSearchQueriesFromObjective(query),
 		advanced_settings: {
 			max_results: numResults,
 			...(Object.keys(sourcePolicy).length > 0 ? { source_policy: sourcePolicy } : {}),
