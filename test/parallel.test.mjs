@@ -54,6 +54,57 @@ console.log(resolveProvider(requestedProvider, availableProviders));
 	);
 }
 
+function runSaveConfigParallelAvailabilityCheck(home) {
+	return runWithHome(
+		home,
+		`
+import { readFileSync, existsSync, writeFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+
+${buildParallelImportPreamble()}
+const { isParallelAvailable, clearParallelConfigCache } = await import(${JSON.stringify(parallelModuleUrl)});
+
+const indexSource = readFileSync(${JSON.stringify(indexModulePath)}, "utf8");
+
+function extractTypeScriptFunction(source, functionName) {
+	const marker = "function " + functionName + "(";
+	const start = source.indexOf(marker);
+	if (start === -1) throw new Error("Could not find function " + functionName);
+	let braceIndex = source.indexOf("{", start);
+	if (braceIndex === -1) throw new Error("Could not find opening brace for " + functionName);
+	let depth = 0;
+	for (let i = braceIndex; i < source.length; i++) {
+		if (source[i] === "{") depth++;
+		else if (source[i] === "}") {
+			depth--;
+			if (depth === 0) return source.slice(start, i + 1);
+		}
+	}
+	throw new Error("Unbalanced braces for " + functionName);
+}
+
+function stripTypeScriptTypes(source) {
+	return source
+		.replace(/:\\s*Partial<WebSearchConfig>/g, "")
+		.replace(/:\\s*Record<string, unknown>/g, "")
+		.replace(/ as Record<string, unknown>/g, "")
+		.replace(/:\\s*void/g, "")
+		.replace(/:\\s*WebSearchConfig/g, "");
+}
+
+const WEB_SEARCH_CONFIG_PATH = join(homedir(), ".pi", "web-search.json");
+const saveConfig = eval("(" + stripTypeScriptTypes(extractTypeScriptFunction(indexSource, "saveConfig")) + ")");
+
+const before = isParallelAvailable();
+saveConfig({ parallelApiKey: "pk_live_abc1234567890ab" });
+const after = isParallelAvailable();
+
+console.log(JSON.stringify({ before, after }));
+		`,
+	);
+}
+
 async function createTempHome(prefix = "pi-web-access-parallel-") {
 	return mkdtemp(join(tmpdir(), prefix));
 }
@@ -342,6 +393,16 @@ test("isParallelAvailable prefers valid PARALLEL_API_KEY over placeholder config
 
 	assertChildSuccess(child);
 	assert.equal(child.stdout.trim(), "true");
+});
+
+test("saveConfig updates isParallelAvailable without process restart", async () => {
+	const home = await createTempHome();
+	const child = runSaveConfigParallelAvailabilityCheck(home);
+
+	assertChildSuccess(child, "saveConfig cache invalidation check");
+	const parsed = JSON.parse(child.stdout.trim());
+	assert.equal(parsed.before, false);
+	assert.equal(parsed.after, true);
 });
 
 test("runWithHome uses an isolated HOME directory", async () => {
