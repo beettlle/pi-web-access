@@ -110,6 +110,11 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 	const config = getSearchConfig();
 	const provider = options.provider ?? config.searchProvider;
 
+	if (provider === "parallel") {
+		const result = await searchWithParallel(query, options);
+		return { ...result, provider: "parallel" };
+	}
+
 	if (provider === "perplexity") {
 		const result = await searchWithPerplexity(query, options);
 		return { ...result, provider: "perplexity" };
