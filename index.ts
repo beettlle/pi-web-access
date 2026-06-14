@@ -190,7 +190,7 @@ function resolveProvider(
 	if (provider === "parallel" && !available.parallel) {
 		if (available.exa) return "exa";
 		if (available.perplexity) return "perplexity";
-		return available.gemini ? "gemini" : "parallel";
+		return available.gemini ? "gemini" : "exa";
 	}
 	if (provider === "perplexity" && !available.perplexity) {
 		if (available.exa) return "exa";

@@ -7,6 +7,52 @@ import { test } from "node:test";
 
 const parallelModuleUrl = new URL("../parallel.ts", import.meta.url).href;
 const geminiSearchModuleUrl = new URL("../gemini-search.ts", import.meta.url).href;
+const indexModulePath = new URL("../index.ts", import.meta.url).pathname;
+
+function runResolveProviderCheck(home, requestedProvider, availableProviders) {
+	return runWithHome(
+		home,
+		`
+import { readFileSync } from "node:fs";
+
+const indexSource = readFileSync(${JSON.stringify(indexModulePath)}, "utf8");
+
+function extractTypeScriptFunction(source, functionName) {
+	const marker = "function " + functionName + "(";
+	const start = source.indexOf(marker);
+	if (start === -1) throw new Error("Could not find function " + functionName);
+	let braceIndex = source.indexOf("{", start);
+	if (braceIndex === -1) throw new Error("Could not find opening brace for " + functionName);
+	let depth = 0;
+	for (let i = braceIndex; i < source.length; i++) {
+		if (source[i] === "{") depth++;
+		else if (source[i] === "}") {
+			depth--;
+			if (depth === 0) return source.slice(start, i + 1);
+		}
+	}
+	throw new Error("Unbalanced braces for " + functionName);
+}
+
+function stripTypeScriptTypes(source) {
+	return source
+		.replace(/:\\s*ResolvedSearchProvider/g, "")
+		.replace(/:\\s*SearchProvider\\s*\\|\\s*undefined/g, "")
+		.replace(/:\\s*ProviderAvailability/g, "")
+		.replace(/:\\s*unknown/g, "")
+		.replace(/:\\s*WebSearchConfig/g, "");
+}
+
+const normalizeProviderInput = eval("(" + stripTypeScriptTypes(extractTypeScriptFunction(indexSource, "normalizeProviderInput")) + ")");
+const loadConfig = () => ({});
+const resolveProvider = eval("(" + stripTypeScriptTypes(extractTypeScriptFunction(indexSource, "resolveProvider")) + ")");
+
+const requestedProvider = ${JSON.stringify(requestedProvider)};
+const availableProviders = ${JSON.stringify(availableProviders)};
+console.log(resolveProvider(requestedProvider, availableProviders));
+		`,
+	);
+}
 
 async function createTempHome(prefix = "pi-web-access-parallel-") {
 	return mkdtemp(join(tmpdir(), prefix));
@@ -707,4 +753,20 @@ console.log(JSON.stringify({
 	assert.equal(parsed.parallelCalls, 0);
 	assert.ok(parsed.searchError, "expected auto search to fail without any provider");
 	assert.doesNotMatch(parsed.searchError, /api\.parallel\.ai/);
+});
+
+test("resolveProvider does not return parallel when unavailable and no providers exist", async () => {
+	const home = await createTempHome();
+	const unavailable = {
+		exa: false,
+		parallel: false,
+		perplexity: false,
+		gemini: false,
+	};
+
+	const child = runResolveProviderCheck(home, "parallel", unavailable);
+
+	assertChildSuccess(child, "resolveProvider check");
+	assert.notEqual(child.stdout.trim(), "parallel");
+	assert.equal(child.stdout.trim(), "exa");
 });
