@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { activityMonitor } from "./activity.js";
-import type { ExtractedContent } from "./extract.js";
+import type { ExtractedContent, ExtractOptions } from "./extract.js";
 import type { SearchOptions, SearchResponse } from "./perplexity.js";
 
 const PARALLEL_SEARCH_URL = "https://api.parallel.ai/v1/search";
@@ -239,6 +239,72 @@ export function mapExtractResult(
 		url: result.url,
 		title: typeof result.title === "string" ? result.title.trim() : "",
 		content,
+	};
+}
+
+export async function searchWithParallel(
+	query: string,
+	options: ParallelSearchOptions = {},
+): Promise<SearchResponse> {
+	const body = buildSearchRequestBody(query, options);
+	const data = await parallelFetch(PARALLEL_SEARCH_URL, body, options.signal);
+	const results = data.results as V1WebSearchResult[] | undefined;
+
+	const response: SearchResponse = {
+		answer: buildAnswerFromExcerpts(results),
+		results: mapSearchResults(results),
+	};
+
+	if (options.includeContent) {
+		const inlineContent = mapInlineContent(results);
+		if (inlineContent.length > 0) {
+			response.inlineContent = inlineContent;
+		}
+	}
+
+	return response;
+}
+
+function hasExtractUrlError(errors: unknown, url: string): boolean {
+	if (!Array.isArray(errors) || errors.length === 0) return false;
+	for (const entry of errors) {
+		if (typeof entry === "string" && entry === url) return true;
+		if (typeof entry === "object" && entry !== null && (entry as { url?: unknown }).url === url) {
+			return true;
+		}
+	}
+	return false;
+}
+
+export async function extractWithParallel(
+	url: string,
+	signal?: AbortSignal,
+	options: ExtractOptions = {},
+): Promise<ExtractedContent | null> {
+	const body: Record<string, unknown> = { urls: [url] };
+	const prompt = options.prompt?.trim();
+	if (prompt) {
+		body.objective = prompt;
+	}
+
+	const data = await parallelFetch(PARALLEL_EXTRACT_URL, body, signal);
+
+	if (hasExtractUrlError(data.errors, url)) {
+		return null;
+	}
+
+	const results = data.results as V1ExtractResult[] | undefined;
+	const result = Array.isArray(results)
+		? results.find(item => item?.url === url) ?? results[0]
+		: undefined;
+	const mapped = mapExtractResult(result);
+	if (!mapped) return null;
+
+	return {
+		url: mapped.url,
+		title: mapped.title,
+		content: mapped.content,
+		error: null,
 	};
 }
 
