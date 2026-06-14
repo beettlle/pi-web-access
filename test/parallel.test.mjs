@@ -21,8 +21,9 @@ async function writeWebSearchConfig(home, config) {
 }
 
 function runWithHome(home, script, extraEnv = {}) {
-	const env = { ...process.env, HOME: home, USERPROFILE: home, ...extraEnv };
+	const env = { ...process.env, HOME: home, USERPROFILE: home };
 	delete env.PARALLEL_API_KEY;
+	Object.assign(env, extraEnv);
 
 	return spawnSync(process.execPath, ["--input-type=module"], {
 		input: wrapChildScript(script),
@@ -90,9 +91,114 @@ globalThis.__getParallelFetchCalls = () => __parallelFetchCalls;
 `;
 }
 
+function buildActivityMockRegisterScript() {
+	const hookSource = [
+		"export async function resolve(specifier, context, nextResolve) {",
+		'  if (specifier.endsWith("activity.js")) {',
+		"    return {",
+		'      url: "data:text/javascript," + encodeURIComponent(' +
+			JSON.stringify(
+				"export const activityMonitor = { logStart: () => \"mock-activity-id\", logComplete: () => {}, logError: () => {} };",
+			) +
+			"),",
+		'      format: "module",',
+		"      shortCircuit: true,",
+		"    };",
+		"  }",
+		"  return nextResolve(specifier, context);",
+		"}",
+	].join("\n");
+
+	return `
+import { register } from "node:module";
+register("data:text/javascript," + encodeURIComponent(${JSON.stringify(hookSource)}), import.meta.url);
+`;
+}
+
+function buildParallelImportPreamble() {
+	return `${buildActivityMockRegisterScript()}`;
+}
+
 function assertChildSuccess(child, label = "child process") {
 	assert.equal(child.status, 0, `${label} failed:\n${child.stderr}`);
 }
+
+function runIsParallelAvailableCheck(home, extraEnv = {}) {
+	return runWithHome(
+		home,
+		`${buildParallelImportPreamble()}
+const { isParallelAvailable } = await import(${JSON.stringify(parallelModuleUrl)});
+console.log(String(isParallelAvailable()));`,
+		extraEnv,
+	);
+}
+
+function runSearchWithParallel(home, scriptBody, extraEnv = {}) {
+	return runWithHome(
+		home,
+		`${buildParallelImportPreamble()}
+const { searchWithParallel } = await import(${JSON.stringify(parallelModuleUrl)});
+${scriptBody}`,
+		extraEnv,
+	);
+}
+
+function runExtractWithParallel(home, scriptBody, extraEnv = {}) {
+	return runWithHome(
+		home,
+		`${buildParallelImportPreamble()}
+const { extractWithParallel } = await import(${JSON.stringify(parallelModuleUrl)});
+${scriptBody}`,
+		extraEnv,
+	);
+}
+
+const extractTargetUrl = "https://example.test/article";
+
+function buildUsefulContent(char = "x", length = 520) {
+	return char.repeat(length);
+}
+
+const sampleV1SearchResponse = {
+	results: [
+		{
+			url: "https://example.test/article",
+			title: "Example Article",
+			excerpts: ["First excerpt.", "Second excerpt."],
+		},
+		{
+			url: "https://example.test/other",
+			title: "Other Page",
+			excerpts: ["Other content here."],
+		},
+	],
+};
+
+test("isParallelAvailable returns false with empty HOME", async () => {
+	const home = await createTempHome();
+	const child = runIsParallelAvailableCheck(home);
+
+	assertChildSuccess(child);
+	assert.equal(child.stdout.trim(), "false");
+});
+
+test("isParallelAvailable returns true with parallelApiKey in web-search.json", async () => {
+	const home = await createTempHome();
+	await writeWebSearchConfig(home, { parallelApiKey: "test-key" });
+
+	const child = runIsParallelAvailableCheck(home);
+
+	assertChildSuccess(child);
+	assert.equal(child.stdout.trim(), "true");
+});
+
+test("isParallelAvailable returns true with PARALLEL_API_KEY env", async () => {
+	const home = await createTempHome();
+	const child = runIsParallelAvailableCheck(home, { PARALLEL_API_KEY: "env-key" });
+
+	assertChildSuccess(child);
+	assert.equal(child.stdout.trim(), "true");
+});
 
 test("runWithHome uses an isolated HOME directory", async () => {
 	const home = await createTempHome();
@@ -167,4 +273,245 @@ console.log(JSON.stringify({
 
 test("parallel module URL is wired for downstream imports", () => {
 	assert.match(parallelModuleUrl, /parallel\.ts$/);
+});
+
+test("searchWithParallel maps V1SearchResponse to answer, results, and inlineContent", async () => {
+	const home = await createTempHome();
+	await writeWebSearchConfig(home, { parallelApiKey: "test-key" });
+
+	const child = runSearchWithParallel(home, `
+${buildFetchMockScript([
+	{
+		urlMatch: "api.parallel.ai/v1/search",
+		response: sampleV1SearchResponse,
+	},
+])}
+const result = await searchWithParallel("parallel search query", { includeContent: true });
+console.log(JSON.stringify({
+	answer: result.answer,
+	results: result.results,
+	inlineContent: result.inlineContent,
+	callBody: globalThis.__getParallelFetchCalls()[0]?.body ?? null,
+}));
+	`);
+
+	assertChildSuccess(child);
+	const parsed = JSON.parse(child.stdout.trim());
+
+	assert.match(parsed.answer, /First excerpt\.\s+Second excerpt\./);
+	assert.match(parsed.answer, /Source: Example Article \(https:\/\/example\.test\/article\)/);
+	assert.match(parsed.answer, /Other content here\./);
+	assert.match(parsed.answer, /Source: Other Page \(https:\/\/example\.test\/other\)/);
+	assert.equal(parsed.results.length, 2);
+	assert.equal(parsed.results[0].url, "https://example.test/article");
+	assert.equal(parsed.results[0].title, "Example Article");
+	assert.equal(parsed.results[0].snippet, "");
+	assert.equal(parsed.inlineContent?.length, 2);
+	assert.equal(parsed.inlineContent[0].url, "https://example.test/article");
+	assert.equal(parsed.inlineContent[0].content, "First excerpt.\n\nSecond excerpt.");
+	assert.equal(parsed.callBody?.objective, "parallel search query");
+	assert.deepEqual(parsed.callBody?.search_queries, ["parallel search query"]);
+});
+
+test("searchWithParallel returns empty answer for empty results", async () => {
+	const home = await createTempHome();
+	await writeWebSearchConfig(home, { parallelApiKey: "test-key" });
+
+	const child = runSearchWithParallel(home, `
+${buildFetchMockScript([
+	{
+		urlMatch: "api.parallel.ai/v1/search",
+		response: { results: [] },
+	},
+])}
+const result = await searchWithParallel("empty results query", { includeContent: true });
+console.log(JSON.stringify({
+	answer: result.answer,
+	results: result.results,
+	inlineContent: result.inlineContent,
+}));
+	`);
+
+	assertChildSuccess(child);
+	const parsed = JSON.parse(child.stdout.trim());
+
+	assert.equal(parsed.answer, "");
+	assert.deepEqual(parsed.results, []);
+	assert.equal(parsed.inlineContent, undefined);
+});
+
+test("searchWithParallel sends domain and recency fields in request body", async () => {
+	const home = await createTempHome();
+	await writeWebSearchConfig(home, { parallelApiKey: "test-key" });
+
+	const child = runSearchWithParallel(home, `
+${buildFetchMockScript([
+	{
+		urlMatch: "api.parallel.ai/v1/search",
+		response: { results: [] },
+	},
+])}
+const result = await searchWithParallel("filtered query", {
+	domainFilter: ["example.com", "-spam.com"],
+	recencyFilter: "week",
+	numResults: 10,
+});
+const callBody = globalThis.__getParallelFetchCalls()[0]?.body ?? null;
+console.log(JSON.stringify({
+	resultCount: result.results.length,
+	callBody,
+}));
+	`);
+
+	assertChildSuccess(child);
+	const parsed = JSON.parse(child.stdout.trim());
+	const sourcePolicy = parsed.callBody?.advanced_settings?.source_policy;
+
+	assert.equal(parsed.resultCount, 0);
+	assert.equal(parsed.callBody?.objective, "filtered query");
+	assert.deepEqual(parsed.callBody?.search_queries, ["filtered query"]);
+	assert.equal(parsed.callBody?.advanced_settings?.max_results, 10);
+	assert.deepEqual(sourcePolicy?.include_domains, ["example.com"]);
+	assert.deepEqual(sourcePolicy?.exclude_domains, ["spam.com"]);
+	assert.match(sourcePolicy?.after_date, /^\d{4}-\d{2}-\d{2}$/);
+
+	const afterDate = new Date(`${sourcePolicy.after_date}T00:00:00Z`);
+	const weekAgo = new Date(Date.now() - 7 * 86400000);
+	const dayMs = 86400000;
+	assert.ok(Math.abs(afterDate.getTime() - weekAgo.getTime()) < 2 * dayMs);
+});
+
+test("extractWithParallel maps full_content from V1ExtractResponse", async () => {
+	const home = await createTempHome();
+	await writeWebSearchConfig(home, { parallelApiKey: "test-key" });
+	const fullContent = buildUsefulContent("A");
+	const shortExcerpt = "Ignored excerpt when full_content is present.";
+
+	const child = runExtractWithParallel(home, `
+${buildFetchMockScript([
+	{
+		urlMatch: "api.parallel.ai/v1/extract",
+		response: {
+			results: [
+				{
+					url: extractTargetUrl,
+					title: "Article Title",
+					full_content: fullContent,
+					excerpts: [shortExcerpt],
+				},
+			],
+		},
+	},
+])}
+const result = await extractWithParallel(${JSON.stringify(extractTargetUrl)});
+console.log(JSON.stringify({
+	result,
+	callBody: globalThis.__getParallelFetchCalls()[0]?.body ?? null,
+}));
+	`);
+
+	assertChildSuccess(child);
+	const parsed = JSON.parse(child.stdout.trim());
+
+	assert.ok(parsed.result);
+	assert.equal(parsed.result.url, extractTargetUrl);
+	assert.equal(parsed.result.title, "Article Title");
+	assert.equal(parsed.result.content, fullContent);
+	assert.equal(parsed.result.error, null);
+	assert.deepEqual(parsed.callBody?.urls, [extractTargetUrl]);
+});
+
+test("extractWithParallel maps joined excerpts when full_content is absent", async () => {
+	const home = await createTempHome();
+	await writeWebSearchConfig(home, { parallelApiKey: "test-key" });
+	const excerptOne = buildUsefulContent("a", 260);
+	const excerptTwo = buildUsefulContent("b", 260);
+	const expectedContent = `${excerptOne}\n\n${excerptTwo}`;
+
+	const child = runExtractWithParallel(home, `
+${buildFetchMockScript([
+	{
+		urlMatch: "api.parallel.ai/v1/extract",
+		response: {
+			results: [
+				{
+					url: extractTargetUrl,
+					title: "Excerpt Article",
+					excerpts: [excerptOne, excerptTwo],
+				},
+			],
+		},
+	},
+])}
+const result = await extractWithParallel(${JSON.stringify(extractTargetUrl)});
+console.log(JSON.stringify({ result }));
+	`);
+
+	assertChildSuccess(child);
+	const parsed = JSON.parse(child.stdout.trim());
+
+	assert.ok(parsed.result);
+	assert.equal(parsed.result.url, extractTargetUrl);
+	assert.equal(parsed.result.title, "Excerpt Article");
+	assert.equal(parsed.result.content, expectedContent);
+	assert.equal(parsed.result.error, null);
+});
+
+test("extractWithParallel returns null when mapped content is below MIN_USEFUL_CONTENT", async () => {
+	const home = await createTempHome();
+	await writeWebSearchConfig(home, { parallelApiKey: "test-key" });
+	const shortContent = buildUsefulContent("s", 120);
+
+	const child = runExtractWithParallel(home, `
+${buildFetchMockScript([
+	{
+		urlMatch: "api.parallel.ai/v1/extract",
+		response: {
+			results: [
+				{
+					url: extractTargetUrl,
+					title: "Short Article",
+					full_content: shortContent,
+				},
+			],
+		},
+	},
+])}
+const result = await extractWithParallel(${JSON.stringify(extractTargetUrl)});
+console.log(JSON.stringify({ result }));
+	`);
+
+	assertChildSuccess(child);
+	const parsed = JSON.parse(child.stdout.trim());
+	assert.equal(parsed.result, null);
+});
+
+test("extractWithParallel returns null when url appears in errors array", async () => {
+	const home = await createTempHome();
+	await writeWebSearchConfig(home, { parallelApiKey: "test-key" });
+	const usefulContent = buildUsefulContent("e");
+
+	const child = runExtractWithParallel(home, `
+${buildFetchMockScript([
+	{
+		urlMatch: "api.parallel.ai/v1/extract",
+		response: {
+			results: [
+				{
+					url: extractTargetUrl,
+					title: "Errored Article",
+					full_content: usefulContent,
+				},
+			],
+			errors: [extractTargetUrl],
+		},
+	},
+])}
+const result = await extractWithParallel(${JSON.stringify(extractTargetUrl)});
+console.log(JSON.stringify({ result }));
+	`);
+
+	assertChildSuccess(child);
+	const parsed = JSON.parse(child.stdout.trim());
+	assert.equal(parsed.result, null);
 });
