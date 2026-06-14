@@ -449,7 +449,8 @@ console.log(JSON.stringify({
 	assert.equal(parsed.results.length, 2);
 	assert.equal(parsed.results[0].url, "https://example.test/article");
 	assert.equal(parsed.results[0].title, "Example Article");
-	assert.equal(parsed.results[0].snippet, "");
+	assert.equal(parsed.results[0].snippet, "First excerpt.");
+	assert.equal(parsed.results[1].snippet, "Other content here.");
 	assert.equal(parsed.inlineContent?.length, 2);
 	assert.equal(parsed.inlineContent[0].url, "https://example.test/article");
 	assert.equal(parsed.inlineContent[0].content, "First excerpt.\n\nSecond excerpt.");
