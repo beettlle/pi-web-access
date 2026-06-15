@@ -10,6 +10,13 @@ const PARALLEL_EXTRACT_URL = "https://api.parallel.ai/v1/extract";
 const CONFIG_PATH = join(homedir(), ".pi", "web-search.json");
 const MIN_PARALLEL_API_KEY_LENGTH = 8;
 
+const RATE_LIMIT = {
+	maxRequests: 10,
+	windowMs: 60 * 1000,
+};
+
+const requestTimestamps: number[] = [];
+
 const PLACEHOLDER_API_KEY_DENYLIST = new Set([
 	"replace_with_your_parallel_api_key",
 	"parallel_api_key",
@@ -50,6 +57,26 @@ function loadConfig(): WebSearchConfig {
 
 export function clearParallelConfigCache(): void {
 	cachedConfig = null;
+}
+
+export function clearParallelRateLimitState(): void {
+	requestTimestamps.length = 0;
+}
+
+function checkRateLimit(): void {
+	const now = Date.now();
+	const windowStart = now - RATE_LIMIT.windowMs;
+
+	while (requestTimestamps.length > 0 && requestTimestamps[0] < windowStart) {
+		requestTimestamps.shift();
+	}
+
+	if (requestTimestamps.length >= RATE_LIMIT.maxRequests) {
+		const waitMs = requestTimestamps[0] + RATE_LIMIT.windowMs - now;
+		throw new Error(`Rate limited. Try again in ${Math.ceil(waitMs / 1000)}s`);
+	}
+
+	requestTimestamps.push(now);
 }
 
 function normalizeApiKey(value: unknown): string | null {
@@ -483,8 +510,17 @@ async function parallelFetch(
 	body: Record<string, unknown>,
 	signal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
+	checkRateLimit();
+
 	const apiKey = getApiKey();
 	const activityId = activityMonitor.logStart(activityContext(url, body));
+
+	activityMonitor.updateRateLimit({
+		used: requestTimestamps.length,
+		max: RATE_LIMIT.maxRequests,
+		oldestTimestamp: requestTimestamps[0] ?? null,
+		windowMs: RATE_LIMIT.windowMs,
+	});
 
 	let response: Response;
 	try {
