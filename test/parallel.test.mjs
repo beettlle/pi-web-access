@@ -93,7 +93,15 @@ function stripTypeScriptTypes(source) {
 		.replace(/:\\s*WebSearchConfig/g, "");
 }
 
-const WEB_SEARCH_CONFIG_PATH = join(homedir(), ".pi", "web-search.json");
+function getWebSearchConfigDir() {
+	const agentDir = process.env.PI_CODING_AGENT_DIR;
+	if (agentDir) return agentDir;
+	const xdgConfig = process.env.XDG_CONFIG_HOME;
+	if (xdgConfig) return join(xdgConfig, "pi");
+	return join(homedir(), ".pi");
+}
+
+const WEB_SEARCH_CONFIG_PATH = join(getWebSearchConfigDir(), "web-search.json");
 const saveConfig = eval("(" + stripTypeScriptTypes(extractTypeScriptFunction(indexSource, "saveConfig")) + ")");
 
 const before = isParallelAvailable();
