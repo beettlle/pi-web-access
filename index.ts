@@ -35,7 +35,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { isPerplexityAvailable } from "./perplexity.js";
 import { isExaAvailable } from "./exa.js";
-import { isParallelAvailable } from "./parallel.js";
+import { clearParallelConfigCache, isParallelAvailable } from "./parallel.js";
 import { isGeminiApiAvailable } from "./gemini-api.js";
 import { getActiveGoogleEmail, isGeminiWebAvailable } from "./gemini-web.js";
 import { isBrowserCookieAccessAllowed } from "./gemini-web-config.ts";
@@ -96,6 +96,7 @@ function saveConfig(updates: Partial<WebSearchConfig>): void {
 	const dir = join(homedir(), ".pi");
 	if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 	writeFileSync(WEB_SEARCH_CONFIG_PATH, JSON.stringify(config, null, 2) + "\n");
+	clearParallelConfigCache();
 }
 
 const DEFAULT_SHORTCUTS = { curate: "ctrl+shift+s", activity: "ctrl+shift+w" };
@@ -190,7 +191,7 @@ function resolveProvider(
 	if (provider === "parallel" && !available.parallel) {
 		if (available.exa) return "exa";
 		if (available.perplexity) return "perplexity";
-		return available.gemini ? "gemini" : "parallel";
+		return available.gemini ? "gemini" : "exa";
 	}
 	if (provider === "perplexity" && !available.perplexity) {
 		if (available.exa) return "exa";

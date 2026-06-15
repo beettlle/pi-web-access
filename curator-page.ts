@@ -7,6 +7,14 @@ function safeInlineJSON(data: unknown): string {
 		.replace(/\u2029/g, "\\u2029");
 }
 
+function unavailableProviderTitle(value: string): string {
+	if (value === "parallel") return "Parallel API key required (parallelApiKey or PARALLEL_API_KEY)";
+	if (value === "perplexity") return "Perplexity API key required (perplexityApiKey or PERPLEXITY_API_KEY)";
+	if (value === "gemini") return "Gemini API key or Gemini Web sign-in required";
+	if (value === "exa") return "Exa search unavailable";
+	return "Provider unavailable";
+}
+
 function buildProviderButtons(
 	available: { perplexity: boolean; exa: boolean; gemini: boolean; parallel: boolean },
 	selected: string,
@@ -20,13 +28,15 @@ function buildProviderButtons(
 	];
 
 	return providers
-		.filter(p => p.available)
 		.map((p) => {
 			const isDefault = p.value === selected;
-			const state = isDefault && hasInitialQueries ? "loading" : "idle";
-			const classes = ["provider-btn", state, isDefault ? "is-default" : ""].filter(Boolean).join(" ");
-			const disabled = state === "loading" ? " disabled" : "";
-			return `<button type="button" class="${classes}" data-provider="${p.value}" data-state="${state}"${disabled}>${p.label}</button>`;
+			const unavailable = !p.available;
+			const state = unavailable ? "idle" : (isDefault && hasInitialQueries ? "loading" : "idle");
+			const classes = ["provider-btn", state, isDefault ? "is-default" : "", unavailable ? "disabled" : ""].filter(Boolean).join(" ");
+			const disabled = unavailable || state === "loading" ? " disabled" : "";
+			const title = unavailable ? ` title="${unavailableProviderTitle(p.value)}"` : "";
+			const dataAvailable = unavailable ? ' data-available="false"' : ' data-available="true"';
+			return `<button type="button" class="${classes}" data-provider="${p.value}" data-state="${state}"${dataAvailable}${disabled}${title}>${p.label}</button>`;
 		})
 		.join("");
 }
@@ -459,9 +469,17 @@ main {
   box-shadow: inset 0 -2px 0 0 var(--accent);
   border-color: var(--accent);
 }
+.provider-btn.disabled,
 .provider-btn:disabled {
-  cursor: default;
-  opacity: 0.5;
+  cursor: not-allowed;
+  opacity: 0.45;
+  color: var(--fg-muted);
+  border-color: var(--border-muted);
+}
+.provider-btn.disabled:hover,
+.provider-btn:disabled:hover {
+  color: var(--fg-muted);
+  border-color: var(--border-muted);
 }
 
 @keyframes provider-pulse {
@@ -1777,7 +1795,7 @@ const SCRIPT = `(function() {
     for (var i = 0; i < providerButtons.length; i++) {
       var btn = providerButtons[i];
       var state = btn.dataset.state || "idle";
-      btn.disabled = disableProviders || state === "loading";
+      btn.disabled = disableProviders || state === "loading" || btn.dataset.available === "false";
     }
 
     var disableAddSearch = isResultMutationLocked();
@@ -2224,6 +2242,7 @@ const SCRIPT = `(function() {
 
       var provider = normalizeProvider(btn.dataset.provider, "");
       if (!provider) return;
+      if (btn.dataset.available === "false" || availProviders[provider] !== true) return;
 
       var state = btn.dataset.state || "idle";
       if (state === "loading") return;

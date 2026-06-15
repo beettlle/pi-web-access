@@ -8,6 +8,29 @@ import type { SearchOptions, SearchResponse } from "./perplexity.js";
 const PARALLEL_SEARCH_URL = "https://api.parallel.ai/v1/search";
 const PARALLEL_EXTRACT_URL = "https://api.parallel.ai/v1/extract";
 const CONFIG_PATH = join(homedir(), ".pi", "web-search.json");
+const MIN_PARALLEL_API_KEY_LENGTH = 8;
+
+const RATE_LIMIT = {
+	maxRequests: 10,
+	windowMs: 60 * 1000,
+};
+
+const requestTimestamps: number[] = [];
+
+const PLACEHOLDER_API_KEY_DENYLIST = new Set([
+	"replace_with_your_parallel_api_key",
+	"parallel_api_key",
+	"your-key",
+	"your-key-here",
+	"your-api-key-here",
+	"dummy",
+	"placeholder",
+	"changeme",
+	"insert-your-key",
+	"insert-your-key-here",
+	"api-key",
+	"xxx",
+]);
 
 interface WebSearchConfig {
 	parallelApiKey?: unknown;
@@ -32,15 +55,57 @@ function loadConfig(): WebSearchConfig {
 	}
 }
 
+export function clearParallelConfigCache(): void {
+	cachedConfig = null;
+}
+
+export function clearParallelRateLimitState(): void {
+	requestTimestamps.length = 0;
+}
+
+function checkRateLimit(): void {
+	const now = Date.now();
+	const windowStart = now - RATE_LIMIT.windowMs;
+
+	while (requestTimestamps.length > 0 && requestTimestamps[0] < windowStart) {
+		requestTimestamps.shift();
+	}
+
+	if (requestTimestamps.length >= RATE_LIMIT.maxRequests) {
+		const waitMs = requestTimestamps[0] + RATE_LIMIT.windowMs - now;
+		throw new Error(`Rate limited. Try again in ${Math.ceil(waitMs / 1000)}s`);
+	}
+
+	requestTimestamps.push(now);
+}
+
 function normalizeApiKey(value: unknown): string | null {
 	if (typeof value !== "string") return null;
 	const normalized = value.trim();
 	return normalized.length > 0 ? normalized : null;
 }
 
+function isPlaceholderApiKey(key: string): boolean {
+	const trimmed = key.trim();
+	if (trimmed.length < MIN_PARALLEL_API_KEY_LENGTH) {
+		return true;
+	}
+	return PLACEHOLDER_API_KEY_DENYLIST.has(trimmed.toLowerCase());
+}
+
 function resolveApiKey(): string | null {
 	const config = loadConfig();
-	return normalizeApiKey(process.env.PARALLEL_API_KEY) ?? normalizeApiKey(config.parallelApiKey);
+	const envKey = normalizeApiKey(process.env.PARALLEL_API_KEY);
+	if (envKey && !isPlaceholderApiKey(envKey)) {
+		return envKey;
+	}
+
+	const configKey = normalizeApiKey(config.parallelApiKey);
+	if (configKey && !isPlaceholderApiKey(configKey)) {
+		return configKey;
+	}
+
+	return null;
 }
 
 function getApiKey(): string {
@@ -153,6 +218,83 @@ export function mapDomainFilter(
 	};
 }
 
+const SEARCH_QUERY_STOP_WORDS = new Set([
+	"a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by", "from", "about",
+	"what", "how", "why", "when", "where", "who", "which", "is", "are", "was", "were", "be", "been", "being",
+	"do", "does", "did", "have", "has", "had", "can", "could", "should", "would", "will", "may", "might",
+	"find", "get", "show", "tell", "give", "look", "looking", "latest", "information", "info",
+	"me", "my", "i", "you", "your", "their", "its", "this", "that", "these", "those",
+	"any", "all", "some", "such", "into", "over", "after", "before", "during", "between",
+	"based", "according", "using", "use", "via", "through", "against",
+	"current", "recent", "please", "including", "include",
+]);
+
+const MAX_SEARCH_QUERY_WORDS = 6;
+const MAX_SEARCH_QUERIES = 3;
+
+function normalizeSearchQueryWhitespace(text: string): string {
+	return text.replace(/\s+/g, " ").trim();
+}
+
+function objectiveTokens(objective: string): string[] {
+	return normalizeSearchQueryWhitespace(objective)
+		.toLowerCase()
+		.replace(/[^\p{L}\p{N}\s-]/gu, " ")
+		.split(/\s+/)
+		.filter(Boolean);
+}
+
+function meaningfulObjectiveTokens(tokens: string[]): string[] {
+	const filtered = tokens.filter(token => !SEARCH_QUERY_STOP_WORDS.has(token));
+	return filtered.length > 0 ? filtered : tokens;
+}
+
+function joinSearchQueryWords(words: string[]): string {
+	return normalizeSearchQueryWhitespace(words.slice(0, MAX_SEARCH_QUERY_WORDS).join(" "));
+}
+
+export function buildSearchQueriesFromObjective(objective: string): string[] {
+	const trimmed = normalizeSearchQueryWhitespace(objective);
+	if (!trimmed) return [];
+
+	const meaningful = meaningfulObjectiveTokens(objectiveTokens(trimmed));
+	const queries: string[] = [];
+	const seen = new Set<string>();
+
+	const addQuery = (words: string[]) => {
+		const query = joinSearchQueryWords(words);
+		if (!query) return;
+		const key = query.toLowerCase();
+		if (seen.has(key)) return;
+		seen.add(key);
+		queries.push(query);
+	};
+
+	addQuery(meaningful);
+
+	if (meaningful.length > 3) {
+		addQuery(meaningful.slice(-4));
+	}
+
+	if (meaningful.length > 4) {
+		addQuery([...meaningful.slice(0, 3), ...meaningful.slice(-2)]);
+	}
+
+	if (queries.length < 2 && meaningful.length >= 2) {
+		addQuery(meaningful.slice(0, 2));
+	}
+
+	if (queries.length < 2 && meaningful.length >= 2) {
+		addQuery(meaningful.slice(-2));
+	}
+
+	if (queries.length < 2 && meaningful.length === 2) {
+		addQuery([meaningful[1], meaningful[0]]);
+	}
+
+	return queries.slice(0, MAX_SEARCH_QUERIES);
+}
+
 export function buildSearchRequestBody(
 	query: string,
 	options: ParallelSearchOptions = {},
@@ -167,7 +309,7 @@ export function buildSearchRequestBody(
 
 	return {
 		objective: query,
-		search_queries: [query],
+		search_queries: buildSearchQueriesFromObjective(query),
 		advanced_settings: {
 			max_results: numResults,
 			...(Object.keys(sourcePolicy).length > 0 ? { source_policy: sourcePolicy } : {}),
@@ -180,16 +322,24 @@ function normalizeExcerpts(value: unknown): string[] {
 	return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
 }
 
+const MAX_SEARCH_SNIPPET_LENGTH = 200;
+
+function truncateSearchSnippet(text: string): string {
+	return text.replace(/\s+/g, " ").trim().slice(0, MAX_SEARCH_SNIPPET_LENGTH);
+}
+
 export function mapSearchResults(results: V1WebSearchResult[] | undefined): SearchResponse["results"] {
 	if (!Array.isArray(results)) return [];
 	const mapped: SearchResponse["results"] = [];
 	for (let i = 0; i < results.length; i++) {
 		const item = results[i];
 		if (!item?.url) continue;
+		const excerpts = normalizeExcerpts(item.excerpts);
+		const snippet = excerpts.length > 0 ? truncateSearchSnippet(excerpts[0]) : "";
 		mapped.push({
 			title: item.title || `Source ${i + 1}`,
 			url: item.url,
-			snippet: "",
+			snippet,
 		});
 	}
 	return mapped;
@@ -276,30 +426,38 @@ function hasExtractUrlError(errors: unknown, url: string): boolean {
 	return false;
 }
 
-export async function extractWithParallel(
+export function buildExtractRequestBody(
 	url: string,
-	signal?: AbortSignal,
 	options: ExtractOptions = {},
-): Promise<ExtractedContent | null> {
+	settings: { fullContent?: boolean } = {},
+): Record<string, unknown> {
 	const body: Record<string, unknown> = { urls: [url] };
 	const prompt = options.prompt?.trim();
 	if (prompt) {
 		body.objective = prompt;
 	}
-
-	const data = await parallelFetch(PARALLEL_EXTRACT_URL, body, signal);
-
-	if (hasExtractUrlError(data.errors, url)) {
-		return null;
+	if (settings.fullContent) {
+		body.advanced_settings = { full_content: true };
 	}
+	return body;
+}
 
-	const results = data.results as V1ExtractResult[] | undefined;
-	const result = Array.isArray(results)
-		? results.find(item => item?.url === url) ?? results[0]
-		: undefined;
-	const mapped = mapExtractResult(result);
-	if (!mapped) return null;
+function findExtractResult(
+	results: V1ExtractResult[] | undefined,
+	url: string,
+): V1ExtractResult | undefined {
+	if (!Array.isArray(results)) return undefined;
+	return results.find(item => item?.url === url) ?? results[0];
+}
 
+function needsFullContentRetry(result: V1ExtractResult | undefined): boolean {
+	if (!result?.url) return false;
+	return resolveExtractContent(result).length < MIN_USEFUL_CONTENT;
+}
+
+function toExtractedContent(
+	mapped: { url: string; title: string; content: string },
+): ExtractedContent {
 	return {
 		url: mapped.url,
 		title: mapped.title,
@@ -308,13 +466,61 @@ export async function extractWithParallel(
 	};
 }
 
+async function fetchAndMapExtractResult(
+	url: string,
+	body: Record<string, unknown>,
+	signal?: AbortSignal,
+): Promise<{ mapped: ReturnType<typeof mapExtractResult>; result: V1ExtractResult | undefined }> {
+	const data = await parallelFetch(PARALLEL_EXTRACT_URL, body, signal);
+	if (hasExtractUrlError(data.errors, url)) {
+		return { mapped: null, result: undefined };
+	}
+	const result = findExtractResult(data.results as V1ExtractResult[] | undefined, url);
+	return { mapped: mapExtractResult(result), result };
+}
+
+export async function extractWithParallel(
+	url: string,
+	signal?: AbortSignal,
+	options: ExtractOptions = {},
+): Promise<ExtractedContent | null> {
+	const initial = await fetchAndMapExtractResult(
+		url,
+		buildExtractRequestBody(url, options),
+		signal,
+	);
+	if (initial.mapped) {
+		return toExtractedContent(initial.mapped);
+	}
+	if (!needsFullContentRetry(initial.result)) {
+		return null;
+	}
+
+	const retry = await fetchAndMapExtractResult(
+		url,
+		buildExtractRequestBody(url, options, { fullContent: true }),
+		signal,
+	);
+	if (!retry.mapped) return null;
+	return toExtractedContent(retry.mapped);
+}
+
 async function parallelFetch(
 	url: string,
 	body: Record<string, unknown>,
 	signal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
+	checkRateLimit();
+
 	const apiKey = getApiKey();
 	const activityId = activityMonitor.logStart(activityContext(url, body));
+
+	activityMonitor.updateRateLimit({
+		used: requestTimestamps.length,
+		max: RATE_LIMIT.maxRequests,
+		oldestTimestamp: requestTimestamps[0] ?? null,
+		windowMs: RATE_LIMIT.windowMs,
+	});
 
 	let response: Response;
 	try {

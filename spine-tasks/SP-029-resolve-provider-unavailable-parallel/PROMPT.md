@@ -52,7 +52,7 @@ Fix resolveProvider() so unavailable parallel never returns parallel as dead las
 |-------|-------|
 | testCommand | `npm test` |
 | fileScopeMustChange | index.ts, test/parallel.test.mjs |
-| fileScopeMustNotChange | parallel.ts, curator-page.ts |
+| fileScopeMustNotChange | curator-page.ts |
 
 ## Steps
 
