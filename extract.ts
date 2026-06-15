@@ -8,6 +8,7 @@ import { extractPDFToMarkdown, isPDF } from "./pdf-extract.js";
 import { extractGitHub } from "./github-extract.js";
 import { isYouTubeURL, isYouTubeEnabled, extractYouTube, extractYouTubeFrame, extractYouTubeFrames, getYouTubeStreamInfo } from "./youtube-extract.js";
 import { extractWithUrlContext, extractWithGeminiWeb } from "./gemini-url-context.js";
+import { isParallelAvailable, extractWithParallel } from "./parallel.js";
 import { isVideoFile, extractVideo, extractVideoFrame, getLocalVideoDuration } from "./video-extract.js";
 import { formatSeconds } from "./utils.js";
 
@@ -420,6 +421,12 @@ export async function extractContent(
 	if (jinaResult) return jinaResult;
 	if (signal?.aborted) return abortedResult(url);
 
+	if (isParallelAvailable()) {
+		const parallelResult = await extractWithParallel(url, signal, options);
+		if (parallelResult) return parallelResult;
+	}
+	if (signal?.aborted) return abortedResult(url);
+
 	let geminiResult: ExtractedContent | null = null;
 	try {
 		geminiResult = await extractWithUrlContext(url, signal)
@@ -438,6 +445,7 @@ export async function extractContent(
 		httpResult.error,
 		"",
 		"Fallback options:",
+		"  \u2022 Set parallelApiKey (or PARALLEL_API_KEY) in ~/.pi/web-search.json",
 		"  \u2022 Set GEMINI_API_KEY in ~/.pi/web-search.json",
 		"  \u2022 Sign into gemini.google.com in Chrome",
 		"  \u2022 Use web_search to find content about this topic",
